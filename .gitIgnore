@@ -1,0 +1,85 @@
+# ─────────────────────────────────────────────
+# Python
+# ─────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+
+# ─────────────────────────────────────────────
+# Entornos virtuales
+# ─────────────────────────────────────────────
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# ─────────────────────────────────────────────
+# Jupyter Notebooks (PROHIBIDOS en el proyecto)
+# ─────────────────────────────────────────────
+*.ipynb
+.ipynb_checkpoints/
+
+# ─────────────────────────────────────────────
+# Datos — los CSVs NO se suben al repositorio
+# (son pesados y están en data/ localmente)
+# ─────────────────────────────────────────────
+data/*.csv
+data/*.xlsx
+data/*.parquet
+data/*.json
+
+# ─────────────────────────────────────────────
+# Modelos entrenados y checkpoints
+# ─────────────────────────────────────────────
+*.pkl
+*.pickle
+*.joblib
+*.h5
+*.pt
+*.pth
+*.npy
+*.npz
+
+# ─────────────────────────────────────────────
+# Resultados y gráficas generadas
+# (se regeneran ejecutando main.py)
+# ─────────────────────────────────────────────
+results/plots/*.png
+results/plots/*.jpg
+results/plots/*.pdf
+results/plots/*.svg
+
+# ─────────────────────────────────────────────
+# VS Code
+# ─────────────────────────────────────────────
+.vscode/
+*.code-workspace
+
+# ─────────────────────────────────────────────
+# Sistema operativo
+# ─────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─────────────────────────────────────────────
+# Logs y temporales
+# ─────────────────────────────────────────────
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+
+# ─────────────────────────────────────────────
+# Distribución / build
+# ─────────────────────────────────────────────
+dist/
+build/
+*.egg-info/
