@@ -1,4 +1,4 @@
-# 🛢️ Predicción del Precio del Brent — Clasificación Binaria
+# Predicción del Precio del Brent — Clasificación Binaria
 
 > Proyecto de Aprendizaje Automático | Curso 2025-26
 
@@ -6,7 +6,7 @@ Predicción de la **dirección del precio del petróleo Brent al día siguiente*
 
 ---
 
-## 📌 Descripción del Problema
+## Descripción del Problema
 
 El objetivo es predecir si el precio del Brent **subirá o bajará** el día siguiente:
 
@@ -19,7 +19,7 @@ El periodo cubierto (2010–2026) incluye eventos de alta relevancia como la pan
 
 ---
 
-## 📂 Estructura del Proyecto
+##  Estructura del Proyecto
 
 ```
 PROYECTOML/
@@ -33,7 +33,7 @@ PROYECTOML/
 │
 ├── models/
 │   ├── logistic_regression.py     # Modelo baseline (sklearn)
-│   ├── neural_network.py          # MLP implementado con NumPy puro ⭐
+│   ├── neural_network.py          # MLP implementado con NumPy puro 
 │   ├── svm_model.py               # SVM con kernel RBF (sklearn)
 │   └── random_forest.py           # Random Forest (sklearn)
 │
@@ -51,7 +51,7 @@ PROYECTOML/
 
 ---
 
-## 🗃️ Datasets
+##  Datasets
 
 ### Dataset 1 — Oil Prices & Market Indicators
 - **Fuente**: [Kaggle — Global Oil Prices and Geopolitical Events](https://www.kaggle.com/datasets/kavyadhyani/global-oil-prices-andgeopolitical-events)
@@ -75,7 +75,7 @@ Los dos datasets se integran mediante **left join** sobre `date`. Los días sin 
 
 ---
 
-## 🤖 Modelos Implementados
+##  Modelos Implementados
 
 | Modelo | Implementación | Rol |
 |--------|---------------|-----|
@@ -92,7 +92,7 @@ Implementa desde cero: forward pass, backpropagation, mini-batch gradient descen
 
 ---
 
-## ⚙️ Instalación y Ejecución
+##  Instalación y Ejecución
 
 ### 1. Clonar el repositorio
 ```bash
@@ -115,7 +115,7 @@ Una sola ejecución reproduce todos los resultados: carga de datos, EDA, preproc
 
 ---
 
-## 📊 Metodología
+## Metodología
 
 ### División temporal de datos
 Se respeta estrictamente el orden cronológico para evitar data leakage:
@@ -138,7 +138,7 @@ Se respeta estrictamente el orden cronológico para evitar data leakage:
 
 ---
 
-## 📈 Resultados
+##  Resultados
 
 Los resultados completos se encuentran en `results/final_results.csv` tras ejecutar `main.py`.
 
@@ -157,7 +157,7 @@ results/plots/
 
 ---
 
-## 🔒 Restricciones Técnicas
+##  Restricciones Técnicas
 
 - ✅ Red neuronal implementada **exclusivamente con NumPy**
 - ✅ Todo el código en archivos `.py` — sin Jupyter Notebooks
@@ -167,7 +167,7 @@ results/plots/
 
 ---
 
-## 🛠️ Dependencias
+##  Dependencias
 
 ```
 Python  3.11
@@ -178,10 +178,8 @@ matplotlib
 seaborn
 ```
 
-Instalación completa disponible en `environment.yml`.
-
 ---
 
-## 👤 Autor
-
+##  Autor
+Rafael Hernando Herias
 Proyecto individual — Asignatura de Aprendizaje Automático | Curso 2025-26
