@@ -17,7 +17,7 @@
 | Arquitectura | Scripts acoplados; preprocesado manual con arrays NumPy en vez de `Pipeline` de sklearn | Riesgo de *leakage* al reutilizar, imposible servir el modelo |
 | MLOps | Ni tracking de experimentos, ni versionado de datos/modelos, ni CI/CD | Lo que más diferencia a un junior en 2026 |
 | Despliegue | Inexistente | No hay demo que enseñar en una entrevista |
-| Documentación | README en español, referencia a fichero inexistente (`memoria.pdf`, `CLAUDE_CODE_PLAN_FASE4.md`) | Mercado internacional → inglés |
+| Documentación | README en español, referencias a ficheros inexistentes (`memoria.pdf`, `environment.yml`, un documento de planificación citado en el MLP) | Mercado internacional → inglés |
 
 **Puntos fuertes a conservar y destacar:** MLP implementado desde cero en NumPy (backprop, dropout, He init),
 split temporal estricto, conciencia explícita de *data leakage* (VIF y winsorización ajustados solo en train).
@@ -51,7 +51,7 @@ split temporal estricto, conciencia explícita de *data leakage* (VIF y winsoriz
 | `feat/config-management` | Configuración tipada con **pydantic-settings** + YAML (`configs/default.yaml`): fechas de split, semillas, rutas, grids. Cero *magic numbers* en el código. |
 | `refactor/structured-logging` | Sustituir `print`/`Tee` por `logging` (o `structlog`) con niveles y salida a fichero. |
 | `chore/dev-tooling` | **pre-commit** con `ruff` (lint + format), `mypy --strict` en `src/`, `codespell`; `Makefile`/`justfile` (`make install`, `make lint`, `make test`, `make train`). `LICENSE` (MIT), `.editorconfig`. |
-| `docs/remove-stale-references` | Eliminar referencias a ficheros inexistentes (`CLAUDE_CODE_PLAN_FASE4.md`, `memoria.pdf`, `environment.yml`). |
+| `docs/remove-stale-references` | Eliminar referencias a ficheros inexistentes (documento de planificación citado en el MLP, `memoria.pdf`, `environment.yml`). |
 
 **Definition of Done:** `uv sync && uv run brent data download && uv run brent train` reproduce los resultados actuales (mismas métricas ±0.001); `pre-commit run --all-files` en verde.
 
