@@ -30,6 +30,7 @@ brent = "brent_forecast.cli:app"
 
 [dependency-groups]
 dev = [
+    "codespell>=2.4",
     "mypy>=1.15",
     "pandas-stubs>=2.2",
     "pre-commit>=4.0",
@@ -45,3 +46,61 @@ build-backend = "uv_build"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "SIM", # flake8-simplify
+    "N",   # pep8-naming
+    "D",   # pydocstyle
+]
+ignore = [
+    "N803", # argument name should be lowercase: X_train/X_val follow the scikit-learn convention
+    "N806", # variable in function should be lowercase: same convention (X, Z1, A1, dW1...)
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.per-file-ignores]
+# Test names document intent; docstrings there add noise.
+"tests/**" = ["D"]
+# matplotlib.use("Agg") must run before importing pyplot.
+"src/brent_forecast/**/*.py" = ["E402"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src"]
+mypy_path = "src"
+warn_unreachable = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# These libraries ship no type information (no py.typed / stubs).
+module = ["sklearn.*", "statsmodels.*", "kagglehub.*"]
+ignore_missing_imports = true
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+[tool.codespell]
+# "te": table header "Gap te-val" (test minus validation); "fpr": false positive rate.
+ignore-words-list = "te,fpr"
+# Spanish documents are not spell-checked.
+skip = "uv.lock,*.csv,docs/ROADMAP.md,README.md"
