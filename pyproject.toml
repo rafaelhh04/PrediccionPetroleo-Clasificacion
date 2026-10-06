@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "Next-day Brent crude oil price direction classifier with market and geopolitical features."
 readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Rafael Hernando Herias" }]
 classifiers = [
     "Programming Language :: Python :: 3",
