@@ -187,11 +187,21 @@ Si el tiempo es limitado, el **mínimo viable de portfolio** es: Fases 1 + 2 + 3
 
 ## Plantilla de prompt de traspaso entre fases
 
-Al terminar cada fase, el agente que la ejecutó debe rellenar y entregar esto:
+Al terminar cada fase, el agente que la ejecutó debe rellenar y entregar esto. El prompt debe ser
+**autocontenido**: el siguiente agente no tiene memoria de la conversación previa, así que hay que incluir
+el contexto del proyecto, el estado del código, las tareas concretas de cada rama, la Definition of Done y
+las reglas, sin depender de que lea este documento (aunque se le pida que lo consulte).
 
 ```text
-Contexto: repo rafaelhh04/PrediccionPetroleo-Clasificacion. Sigue docs/ROADMAP.md.
-Ejecuta la FASE <N+1> — <nombre>.
+Eres un ML/Software Engineer senior. Repo: rafaelhh04/PrediccionPetroleo-Clasificacion.
+Proyecto: <resumen de 3-4 líneas del proyecto y su objetivo de portfolio>.
+Estado actual del código: <estructura, comandos, cómo se ejecuta hoy>.
+Ejecuta la FASE <N+1> — <nombre>. Objetivo: <objetivo>.
+
+Tareas por rama (una rama y un PR por funcionalidad):
+- <rama>: <qué hacer exactamente, ficheros afectados, criterio de aceptación>
+
+Definition of Done: <comandos verificables y umbrales>
 
 Progreso hasta ahora:
 - Fases completadas: <lista> (ramas mergeadas: <lista>)
