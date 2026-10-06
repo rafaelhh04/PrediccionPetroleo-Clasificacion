@@ -103,4 +103,4 @@ warn_required_dynamic_aliases = true
 # "te": table header "Gap te-val" (test minus validation); "fpr": false positive rate.
 ignore-words-list = "te,fpr"
 # Spanish documents are not spell-checked.
-skip = "uv.lock,*.csv,docs/ROADMAP.md,README.md"
+skip = "uv.lock,*.csv,docs/ROADMAP.md,README.es.md"
