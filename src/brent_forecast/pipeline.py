@@ -9,6 +9,7 @@ Orquestación de la pipeline completa. Se invoca desde la CLI:
 Toda la salida por consola se duplica en results/run_log.txt (Tee).
 """
 
+import json
 import os
 import sys
 import numpy as np
@@ -47,6 +48,7 @@ from brent_forecast.models.neural_network import (
 
 
 LOG_PATH = "results/run_log.txt"
+METRICS_PATH = "results/metrics.json"
 
 
 class Tee:
@@ -138,10 +140,26 @@ def _run_pipeline() -> None:
     plot_roc_test_comparison(final_results, y_test)
     plot_train_val_test_summary(final_results)
     print_final_summary_table(final_results)
+    _save_metrics(final_results, METRICS_PATH)
+    print(f"[main] Métricas finales guardadas en: {METRICS_PATH}")
 
     best_test = max(final_results, key=lambda r: r["metrics_test"]["auc_roc"])
     print(f"\n Fase 6 completada. Mejor modelo por AUC(test): "
           f"{best_test['model_name']} (AUC = {best_test['metrics_test']['auc_roc']:.4f})")
+
+
+def _save_metrics(final_results: list, path: str) -> None:
+    """Guarda las métricas train/val/test de cada modelo en JSON (legible por máquina)."""
+    payload = {
+        r["model_name"]: {
+            "train": r["metrics_train"],
+            "val":   r["metrics_val"],
+            "test":  r["metrics_test"],
+        }
+        for r in final_results
+    }
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
 
 
 def run() -> None:
