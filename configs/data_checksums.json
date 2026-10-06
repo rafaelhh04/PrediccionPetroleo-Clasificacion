@@ -1,0 +1,8 @@
+{
+  "dataset": "kavyadhyani/global-oil-prices-andgeopolitical-events",
+  "algorithm": "sha256",
+  "files": {
+    "oil_geopolitics_dataset_2010_2026.csv": null,
+    "geopolitical_events_timeline.csv": null
+  }
+}

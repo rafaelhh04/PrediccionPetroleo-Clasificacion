@@ -100,6 +100,21 @@ git clone <url-del-repo>
 cd PROYECTOML
 ```
 
+### Descarga de datos
+
+Los CSV no se versionan. `brent data download` los descarga de Kaggle con
+`kagglehub`, los copia a `data/raw/` con los nombres canónicos
+(`oil_geopolitics_dataset_2010_2026.csv`, `geopolitical_events_timeline.csv`)
+y verifica sus SHA-256 contra `configs/data_checksums.json`.
+
+Credenciales: exporta `KAGGLE_USERNAME` y `KAGGLE_KEY` (o usa `~/.kaggle/kaggle.json`).
+
+**Descarga manual** (sin credenciales): descarga el ZIP desde
+[Kaggle](https://www.kaggle.com/datasets/kavyadhyani/global-oil-prices-andgeopolitical-events),
+descomprímelo, copia los dos CSV a `data/raw/` con los nombres canónicos y ejecuta
+`brent data verify`. Si `configs/data_checksums.json` aún no tiene los hashes
+(valores `null`), la primera verificación los registra: haz commit del fichero.
+
 ### 2. Crear el entorno conda
 ```bash
 conda env create -f environment.yml

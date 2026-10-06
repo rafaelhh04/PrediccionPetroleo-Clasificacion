@@ -6,8 +6,11 @@ import os
 # Carpeta de datos relativa a la raíz del proyecto (directorio de trabajo).
 DATA_DIR = os.path.join('data', 'raw')
 
-OIL_DATA_PATH = os.path.join(DATA_DIR, 'oil_geopolitics_dataset_2010_2026.csv')
-GEO_DATA_PATH = os.path.join(DATA_DIR, 'geopolitical_events_timeline.csv')
+OIL_FILENAME = 'oil_geopolitics_dataset_2010_2026.csv'
+EVENTS_FILENAME = 'geopolitical_events_timeline.csv'
+
+OIL_DATA_PATH = os.path.join(DATA_DIR, OIL_FILENAME)
+GEO_DATA_PATH = os.path.join(DATA_DIR, EVENTS_FILENAME)
 
 
 def load_oil_data()-> pd.DataFrame:
