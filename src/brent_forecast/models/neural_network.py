@@ -11,7 +11,7 @@ Project constraints:
 - The seed (``random_state``) drives every random operation: initialisation,
   dropout masks and shuffling.
 
-Key mathematical notes (see CLAUDE_CODE_PLAN_FASE4.md):
+Key mathematical notes:
 
 - He initialisation for ReLU layers: ``W ~ N(0, sqrt(2 / n_in))``; Xavier for
   the sigmoid output layer.
