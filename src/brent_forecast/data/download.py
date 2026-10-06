@@ -80,9 +80,9 @@ def save_checksums(path: Path, checksums: dict[str, str | None], data: DataSetti
 def identify_csv(path: Path, data: DataSettings) -> str | None:
     """Return the canonical file name matching the CSV header, or None."""
     columns = {str(c).strip() for c in pd.read_csv(path, nrows=0).columns}
-    if _OIL_SIGNATURE <= columns:
+    if columns >= _OIL_SIGNATURE:
         return data.oil_filename
-    if _EVENTS_SIGNATURE <= columns:
+    if columns >= _EVENTS_SIGNATURE:
         return data.events_filename
     return None
 

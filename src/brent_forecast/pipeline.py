@@ -13,35 +13,46 @@ from pathlib import Path
 
 import numpy as np
 
+from brent_forecast._types import ModelResult
 from brent_forecast.config import Settings
 from brent_forecast.data.load import load_oil_data
-from brent_forecast.features.preprocessing import preprocess
-from brent_forecast.evaluation.metrics import log_summary_table, plot_roc_comparison
-from brent_forecast.models.tuning import make_time_series_cv
-from brent_forecast.evaluation.learning_curves import plot_learning_curve_sklearn, plot_learning_curve_mlp
 from brent_forecast.evaluation.final import (
     evaluate_on_test,
+    log_final_summary_table,
     plot_roc_test_comparison,
     plot_train_val_test_summary,
-    log_final_summary_table,
 )
-
+from brent_forecast.evaluation.learning_curves import (
+    plot_learning_curve_mlp,
+    plot_learning_curve_sklearn,
+)
+from brent_forecast.evaluation.metrics import log_summary_table, plot_roc_comparison
+from brent_forecast.features.preprocessing import preprocess
 from brent_forecast.models.logistic_regression import (
-    train_and_evaluate   as run_logreg,
+    train_and_evaluate as run_logreg,
+)
+from brent_forecast.models.logistic_regression import (
     tune_hyperparameters as tune_logreg,
 )
-from brent_forecast.models.svm import (
-    train_and_evaluate   as run_svm,
-    tune_hyperparameters as tune_svm,
-)
-from brent_forecast.models.random_forest import (
-    train_and_evaluate   as run_rf,
-    tune_hyperparameters as tune_rf,
+from brent_forecast.models.neural_network import (
+    train_and_evaluate as run_mlp,
 )
 from brent_forecast.models.neural_network import (
-    train_and_evaluate   as run_mlp,
     tune_hyperparameters as tune_mlp,
 )
+from brent_forecast.models.random_forest import (
+    train_and_evaluate as run_rf,
+)
+from brent_forecast.models.random_forest import (
+    tune_hyperparameters as tune_rf,
+)
+from brent_forecast.models.svm import (
+    train_and_evaluate as run_svm,
+)
+from brent_forecast.models.svm import (
+    tune_hyperparameters as tune_svm,
+)
+from brent_forecast.models.tuning import make_time_series_cv
 
 logger = logging.getLogger(__name__)
 
@@ -67,19 +78,26 @@ def run(settings: Settings) -> None:
     )
     logger.info(
         "Scaler fitted on train: %s (n_features=%d); X_test held out until the final step",
-        type(scaler).__name__, scaler.n_features_in_,
+        type(scaler).__name__,
+        scaler.n_features_in_,
     )
 
     # ─── 3. Hyperparameter tuning with TimeSeriesSplit ───────────
-    logger.info("[3/6] Hyperparameter tuning with TimeSeriesSplit (n_splits=%d)", settings.cv.n_splits)
+    logger.info(
+        "[3/6] Hyperparameter tuning with TimeSeriesSplit (n_splits=%d)", settings.cv.n_splits
+    )
     cv = make_time_series_cv(settings.cv.n_splits)
     models = settings.models
-    tune_kwargs = {"scoring": settings.cv.scoring, "seed": settings.seed}
+    scoring, seed = settings.cv.scoring, settings.seed
     best_params = {
-        "Logistic Regression": tune_logreg(X_train, y_train, cv, models.logistic_regression, **tune_kwargs),
-        "SVM (RBF)":           tune_svm(X_train, y_train, cv, models.svm, **tune_kwargs),
-        "Random Forest":       tune_rf(X_train, y_train, cv, models.random_forest, **tune_kwargs),
-        "MLP NumPy":           tune_mlp(X_train, y_train, cv, models.mlp, **tune_kwargs),
+        "Logistic Regression": tune_logreg(
+            X_train, y_train, cv, models.logistic_regression, scoring=scoring, seed=seed
+        ),
+        "SVM (RBF)": tune_svm(X_train, y_train, cv, models.svm, scoring=scoring, seed=seed),
+        "Random Forest": tune_rf(
+            X_train, y_train, cv, models.random_forest, scoring=scoring, seed=seed
+        ),
+        "MLP NumPy": tune_mlp(X_train, y_train, cv, models.mlp, scoring=scoring, seed=seed),
     }
     for name, params in best_params.items():
         logger.info("Best hyperparameters | %s: %s", name, params)
@@ -88,14 +106,23 @@ def run(settings: Settings) -> None:
     logger.info("[4/6] Training the 4 models with the best hyperparameters")
     runners = [
         ("Logistic Regression", run_logreg),
-        ("SVM (RBF)",           run_svm),
-        ("Random Forest",       run_rf),
-        ("MLP NumPy",           run_mlp),
+        ("SVM (RBF)", run_svm),
+        ("Random Forest", run_rf),
+        ("MLP NumPy", run_mlp),
     ]
     results = []
     for name, runner in runners:
-        results.append(runner(X_train, y_train, X_val, y_val, feature_cols,
-                              params=best_params[name], plots_dir=paths.plots_dir))
+        results.append(
+            runner(
+                X_train,
+                y_train,
+                X_val,
+                y_val,
+                feature_cols,
+                params=best_params[name],
+                plots_dir=paths.plots_dir,
+            )
+        )
 
     log_summary_table(results)
     roc_path = plot_roc_comparison(results, y_val, paths.plots_dir)
@@ -105,16 +132,25 @@ def run(settings: Settings) -> None:
     logger.info("[5/6] Learning curves (TimeSeriesSplit)")
     sklearn_names = ["Logistic Regression", "SVM (RBF)", "Random Forest"]
     train_sizes = settings.evaluation.learning_curve_train_sizes
-    for r, name in zip(results[:3], sklearn_names):
+    for r, name in zip(results[:3], sklearn_names, strict=True):
         # sklearn.learning_curve clones the fitted estimator and refits it per fold.
         plot_learning_curve_sklearn(
-            r["model"], X_train, y_train, name,
-            cv=cv, scoring=settings.cv.scoring, train_sizes=train_sizes,
+            r["model"],
+            X_train,
+            y_train,
+            name,
+            cv=cv,
+            scoring=settings.cv.scoring,
+            train_sizes=train_sizes,
             plots_dir=paths.plots_dir,
         )
     plot_learning_curve_mlp(
-        X_train, y_train, best_params["MLP NumPy"],
-        cv=cv, train_sizes=train_sizes, plots_dir=paths.plots_dir,
+        X_train,
+        y_train,
+        best_params["MLP NumPy"],
+        cv=cv,
+        train_sizes=train_sizes,
+        plots_dir=paths.plots_dir,
     )
 
     # ─── 6. Final evaluation on TEST (single pass) ───────────────
@@ -130,17 +166,18 @@ def run(settings: Settings) -> None:
     best_test = max(final_results, key=lambda r: r["metrics_test"]["auc_roc"])
     logger.info(
         "Done. Best model by test AUC: %s (AUC = %.4f)",
-        best_test["model_name"], best_test["metrics_test"]["auc_roc"],
+        best_test["model_name"],
+        best_test["metrics_test"]["auc_roc"],
     )
 
 
-def _save_metrics(final_results: list, path: Path) -> None:
+def _save_metrics(final_results: list[ModelResult], path: Path) -> None:
     """Write the train/val/test metrics of every model as JSON."""
     payload = {
         r["model_name"]: {
             "train": r["metrics_train"],
-            "val":   r["metrics_val"],
-            "test":  r["metrics_test"],
+            "val": r["metrics_val"],
+            "test": r["metrics_test"],
         }
         for r in final_results
     }

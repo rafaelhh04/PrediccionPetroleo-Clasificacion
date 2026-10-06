@@ -1,19 +1,18 @@
+"""Preprocessing pipeline for next-day Brent direction classification.
 
-"""
-Pipeline de preprocesado para la predicción de la dirección del precio del Brent.
+Execution order (it matters):
 
-Orden de ejecución (importa):
-    1. create_label          → genera label ANTES de cualquier filtrado
-    2. engineer_features     → transformaciones y selección de features
-    3. handle_nulls          → eliminación de filas con nulos
-    4. split_temporal        → división cronológica train/val/test
-    5. winsorize_features    → recorte de outliers (calculado sobre train)
-    6. scale_features        → estandarización (ajustada solo sobre train)
+1. ``create_label``            -> label created BEFORE any filtering
+2. ``engineer_features``       -> transformations and feature selection
+3. ``handle_nulls``            -> drop rows with null features
+4. ``filter_features_by_vif``  -> multicollinearity filter (train rows only)
+5. ``split_temporal``          -> chronological train/val/test split
+6. ``winsorize_features``      -> clip outliers (percentiles fitted on train)
+7. ``scale_features``          -> standardisation (fitted on train only)
 
-
-Tras load_oil_data() las columnas event_type/event_severity/event_description
-son las GEOPOLÍTICAS (post _resolve_overlap). Los originales del oil dataset
-están en oil_event_*.
+After ``load_oil_data`` the ``event_type`` / ``event_severity`` /
+``event_description`` columns are the GEOPOLITICAL ones; the original oil
+dataset columns live in ``oil_event_*``.
 """
 
 import logging
@@ -21,137 +20,154 @@ import logging
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
-from typing import Tuple, List
+from statsmodels.stats.outliers_influence import variance_inflation_factor
 
+from brent_forecast._types import FloatArray
 from brent_forecast.config import PreprocessingSettings, SplitSettings
 
 logger = logging.getLogger(__name__)
 
+SplitArrays = tuple[FloatArray, FloatArray, FloatArray, FloatArray, FloatArray, FloatArray]
+
 
 # ──────────────────────────────────────────────
-# 1. GENERACIÓN DE LA VARIABLE OBJETIVO
+# 1. Target variable
 # ──────────────────────────────────────────────
+
 
 def create_label(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Genera la variable objetivo para clasificación binaria.
+    """Create the binary target: ``label = 1`` if ``brent_return(t+1) > 0``, else 0.
 
-    label = 1 si brent_return(t+1) > 0, 0 en caso contrario.
-    Se usa shift(-1) sobre brent_return para alinear cada fila con el retorno
-    del día siguiente. La última fila queda con NaN y se elimina.
+    ``shift(-1)`` aligns every row with the next day's return. It must run
+    BEFORE any filtering or reordering so that features and label stay
+    aligned; the alignment is asserted on the first 100 rows.
 
-    IMPORTANTE: se llama ANTES de cualquier filtrado o reordenación
-    para garantizar la alineación correcta entre features y label.
+    Parameters
+    ----------
+    df
+        Merged dataset with ``date`` and ``brent_return``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Dataset sorted by date with a float ``label`` column.
+
+    Notes
+    -----
+    Known issue (kept on purpose in this refactoring phase, as fixing it
+    changes the metrics): ``NaN > 0`` evaluates to ``False``, so the last row
+    gets ``label = 0`` instead of ``NaN`` and is not dropped by ``dropna``.
     """
     df = df.sort_values("date").reset_index(drop=True)
     df["label"] = (df["brent_return"].shift(-1) > 0).astype(float)
 
-    # Verificación explícita de alineación sobre las primeras 100 filas
+    returns = df["brent_return"].to_numpy(dtype=float)
+    labels = df["label"].to_numpy(dtype=float)
     for i in range(min(100, len(df) - 1)):
-        retorno_siguiente = df.loc[i + 1, "brent_return"]
-        label_actual = df.loc[i, "label"]
-        assert (retorno_siguiente > 0) == (label_actual == 1.0), (
-            f"Misaligned label at row {i}: next return={retorno_siguiente:.4f}, label={label_actual}"
+        next_return = returns[i + 1]
+        label = labels[i]
+        assert (next_return > 0) == (label == 1.0), (
+            f"Misaligned label at row {i}: next return={next_return:.4f}, label={label}"
         )
 
     df = df.dropna(subset=["label"]).reset_index(drop=True)
-    logger.info("Class distribution:\n%s", df['label'].value_counts(normalize=True).round(3))
+    logger.info("Class distribution:\n%s", df["label"].value_counts(normalize=True).round(3))
     return df
 
 
 # ──────────────────────────────────────────────
-# 2. INGENIERÍA DE FEATURES
+# 2. Feature engineering
 # ──────────────────────────────────────────────
 
-def engineer_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
-    """
-    Aplica transformaciones y eliminaciones sobre el DataFrame.
 
-    Cambios aplicados:
-    - P1: elimina wti_return (data leakage del mismo día que brent_return).
-    - P2: convierte lags de precio a retornos logarítmicos (estacionariedad).
-    - P3: sustituye gpr_index (constante semanal) por gpr_change (variación 21d).
-    - P4: reemplaza columnas de evento dispersas por event_flag_binary y
-          high_severity_flag (densas).
-    - P5: elimina volatilidades WTI redundantes; añade vol_ratio.
-    - Añade features de estacionalidad: day_of_week, month.
+def engineer_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """Apply the feature transformations and select the feature columns.
+
+    - P1: drop ``wti_return`` (same-day leakage with ``brent_return``).
+    - P2: turn price lags into log returns (stationarity).
+    - P3: replace ``gpr_index`` (weekly constant) with ``gpr_change`` (21-day change).
+    - P4: replace sparse event columns with dense ``event_flag_binary`` and
+      ``high_severity_flag``.
+    - P5: drop redundant WTI volatilities; add ``vol_ratio``.
+    - Seasonality: ``day_of_week`` and ``month``.
+
+    Parameters
+    ----------
+    df
+        Labelled dataset.
 
     Returns
     -------
-    df : pd.DataFrame
-        DataFrame con features transformadas.
-    feature_cols : List[str]
-        Nombres de las columnas que se usarán como features.
+    df : pandas.DataFrame
+        Dataset with the engineered columns.
+    feature_cols : list of str
+        Names of the columns used as features.
     """
-
-    # P1 — Eliminar wti_return (leakage del mismo día)
+    # P1 — drop wti_return (same-day leakage)
     df = df.drop(columns=["wti_return"], errors="ignore")
 
-    # P2 — Convertir lags de precio a retornos logarítmicos
+    # P2 — price lags -> log returns
     for n in [1, 3, 7]:
         df[f"lag_ret_{n}"] = np.log(df["brent_price"] / df[f"brent_lag_{n}"])
 
     lag_cols = [f"brent_lag_{n}" for n in [1, 3, 7]] + [f"wti_lag_{n}" for n in [1, 3, 7]]
     df = df.drop(columns=lag_cols, errors="ignore")
 
-    # P3 — Sustituir gpr_index por gpr_change (21 días hábiles ≈ 1 mes)
+    # P3 — gpr_index -> gpr_change over 21 trading days (~1 month)
     df["gpr_change"] = df["gpr_index"] - df["gpr_index"].shift(21)
     df = df.drop(columns=["gpr_index"], errors="ignore")
 
-    # P4 — Features binarias densas a partir del event_severity geopolítico
-    # event_severity aquí es la columna geopolítica (post _resolve_overlap en load_data)
+    # P4 — dense binary flags from the geopolitical event_severity
     df["event_flag_binary"] = (df["event_severity"] > 0).astype(int)
     df["high_severity_flag"] = (df["event_severity"] >= 7).astype(int)
 
-    # P5 — Eliminar volatilidades WTI redundantes (corr > 0.95 con Brent)
+    # P5 — drop WTI volatilities (corr > 0.95 with Brent)
     df = df.drop(columns=["wti_volatility_7d", "wti_volatility_30d"], errors="ignore")
     df["vol_ratio"] = df["brent_volatility_7d"] / (df["brent_volatility_30d"] + 1e-10)
 
-    # Estacionalidad
-    df["day_of_week"] = df["date"].dt.dayofweek   # 0=Lunes … 4=Viernes
-    df["month"]       = df["date"].dt.month        # 1–12
+    # Seasonality
+    df["day_of_week"] = df["date"].dt.dayofweek  # 0 = Monday ... 4 = Friday
+    df["month"] = df["date"].dt.month  # 1-12
 
-    # Set de columnas a EXCLUIR del feature set
-    # - 'date' / 'label': metadatos
-    # - 'brent_return': fuente del label, sería leakage
-    # - 'brent_price' / 'wti_price': precios absolutos no estacionarios.
-    #     Su distribución cambia entre 2010 ($75) y 2022 ($110): el modelo
-    #     entrenado en un nivel ve el otro como outlier. La señal predictiva
-    #     se mantiene vía lag_ret_n (retornos logarítmicos, sí estacionarios).
-    # - event_*: textuales (geopolíticas) — ya capturadas por las features binarias
-    # - oil_event_*: residuales del rename en load_data — descartar
-    # - event_flag: implícito en event_flag_binary; evita duplicar señal
+    # Columns EXCLUDED from the feature set:
+    # - date / label: metadata
+    # - brent_return: source of the label (leakage)
+    # - brent_price / wti_price: non-stationary price levels; the predictive
+    #   signal is kept through lag_ret_n (stationary log returns)
+    # - event_*: textual geopolitical columns, captured by the binary flags
+    # - oil_event_*: leftovers of the rename in load_data
+    # - event_flag: implied by event_flag_binary; avoids duplicated signal
     exclude = {
-        "date", "label",
+        "date",
+        "label",
         "brent_return",
-        "brent_price", "wti_price",
-        "event_type", "event_description", "event_severity",
-        "oil_event_type", "oil_event_description", "oil_event_severity",
+        "brent_price",
+        "wti_price",
+        "event_type",
+        "event_description",
+        "event_severity",
+        "oil_event_type",
+        "oil_event_description",
+        "oil_event_severity",
         "event_flag",
     }
 
-    feature_cols = [
-        c for c in df.columns
-        if c not in exclude and df[c].dtype != object
-    ]
+    feature_cols = [str(c) for c in df.columns if c not in exclude and df[c].dtype != object]
 
     logger.info("Selected %d features: %s", len(feature_cols), feature_cols)
     return df, feature_cols
 
 
 # ──────────────────────────────────────────────
-# 3. TRATAMIENTO DE NULOS
+# 3. Null handling
 # ──────────────────────────────────────────────
 
-def handle_nulls(df: pd.DataFrame, feature_cols: List[str]) -> pd.DataFrame:
-    """
-    Elimina o imputa filas con valores nulos en las features.
 
-    Los lags generan nulos al inicio:
-    - lag_ret_1: 1 fila, lag_ret_3: 3, lag_ret_7: 7.
-    gpr_change genera 21 nulos al inicio (ventana de un mes hábil).
+def handle_nulls(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame:
+    """Forward-fill VIX/DXY and drop rows with null features.
 
-    Se eliminan a lo sumo 21 filas sobre ~4.000 (< 0.6%).
+    Lags create nulls at the start (``lag_ret_7``: 7 rows) and ``gpr_change``
+    creates 21, so at most ~21 rows out of ~4,000 are dropped (< 0.6%).
     """
     for col in ["vix", "dxy_index"]:
         if col in df.columns:
@@ -167,30 +183,41 @@ def handle_nulls(df: pd.DataFrame, feature_cols: List[str]) -> pd.DataFrame:
 
 
 # ──────────────────────────────────────────────
-# 3b. FILTRADO POR MULTICOLINEALIDAD (VIF)
+# 4. Multicollinearity filter (VIF)
 # ──────────────────────────────────────────────
+
 
 def filter_features_by_vif(
     df: pd.DataFrame,
-    feature_cols: List[str],
+    feature_cols: list[str],
     train_end_date: pd.Timestamp,
     vif_threshold: float,
-) -> List[str]:
+) -> list[str]:
+    """Drop the highest-VIF feature, repeatedly, until all VIFs are below the threshold.
+
+    The Variance Inflation Factor measures how much the variance of a
+    coefficient is inflated by the other features; VIF > 10 means the feature
+    is almost a linear combination of the others.
+
+    The VIF is computed ONLY on training rows (``date < train_end_date``) so
+    that validation and test data do not influence which features survive.
+
+    Parameters
+    ----------
+    df
+        Dataset with ``date`` and the candidate features.
+    feature_cols
+        Candidate feature names.
+    train_end_date
+        First date that is no longer part of the training set.
+    vif_threshold
+        Features are dropped while the maximum VIF is above this value.
+
+    Returns
+    -------
+    list of str
+        Surviving features, in their original order.
     """
-    Elimina iterativamente la feature con mayor VIF mientras alguna supere el umbral.
-
-    El Variance Inflation Factor mide cuánto se infla la varianza del
-    coeficiente de una feature en una regresión lineal por la presencia
-    de las demás. VIF > 10 indica multicolinealidad fuerte: la feature
-    es prácticamente combinación lineal de otras y aporta poca información
-    nueva al modelo lineal (LogReg, SVM lineal) y degrada la interpretabilidad.
-
-    IMPORTANTE: el VIF se calcula SOLO con los datos de train (fechas anteriores
-    a `train_end_date`) para evitar data leakage. Val y test no influyen
-    en la decisión de qué features sobreviven.
-    """
-    from statsmodels.stats.outliers_influence import variance_inflation_factor
-
     train_mask = df["date"] < train_end_date
     remaining = list(feature_cols)
     logger.info(
@@ -198,7 +225,7 @@ def filter_features_by_vif(
     )
 
     while len(remaining) > 1:
-        X = df.loc[train_mask, remaining].values.astype(float)
+        X = df.loc[train_mask, remaining].to_numpy().astype(float)
 
         vifs = []
         for i in range(X.shape[1]):
@@ -218,8 +245,8 @@ def filter_features_by_vif(
         logger.info("VIF dropped: %-25s VIF = %s", worst_name, vif_str)
         remaining.pop(worst_idx)
 
-    # Reporte final de VIFs de las features que sobreviven
-    X_final = df.loc[train_mask, remaining].values.astype(float)
+    # Final report of the surviving features
+    X_final = df.loc[train_mask, remaining].to_numpy().astype(float)
     logger.info("VIF final features (%d):", len(remaining))
     for i, name in enumerate(remaining):
         try:
@@ -233,98 +260,103 @@ def filter_features_by_vif(
 
 
 # ──────────────────────────────────────────────
-# 4. DIVISIÓN TEMPORAL ESTRICTA
+# 5. Strict chronological split
 # ──────────────────────────────────────────────
+
 
 def split_temporal(
     df: pd.DataFrame,
-    feature_cols: List[str],
+    feature_cols: list[str],
     train_end: pd.Timestamp,
     val_end: pd.Timestamp,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray,
-           np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Divide el dataset respetando el orden cronológico estricto.
+) -> SplitArrays:
+    """Split the dataset in strict chronological order.
 
-    Train:      date <  train_end            (por defecto 2010–2021)
-    Validación: train_end <= date < val_end  (por defecto 2022–2023)
-    Test:       date >= val_end              (por defecto 2024–2026)
+    - Train: ``date < train_end`` (2010-2021 by default)
+    - Validation: ``train_end <= date < val_end`` (2022-2023 by default)
+    - Test: ``date >= val_end`` (2024-2026 by default)
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        ``X_train, X_val, X_test, y_train, y_val, y_test``.
     """
     train_mask = df["date"] < train_end
-    val_mask   = (df["date"] >= train_end) & (df["date"] < val_end)
-    test_mask  = df["date"] >= val_end
+    val_mask = (df["date"] >= train_end) & (df["date"] < val_end)
+    test_mask = df["date"] >= val_end
 
-    X_train = df.loc[train_mask, feature_cols].values
-    X_val   = df.loc[val_mask,   feature_cols].values
-    X_test  = df.loc[test_mask,  feature_cols].values
+    X_train = df.loc[train_mask, feature_cols].to_numpy()
+    X_val = df.loc[val_mask, feature_cols].to_numpy()
+    X_test = df.loc[test_mask, feature_cols].to_numpy()
 
-    y_train = df.loc[train_mask, "label"].values
-    y_val   = df.loc[val_mask,   "label"].values
-    y_test  = df.loc[test_mask,  "label"].values
+    y_train = df.loc[train_mask, "label"].to_numpy()
+    y_val = df.loc[val_mask, "label"].to_numpy()
+    y_test = df.loc[test_mask, "label"].to_numpy()
 
     logger.info(
         "Split sizes | train: %d | val: %d | test: %d",
-        X_train.shape[0], X_val.shape[0], X_test.shape[0],
+        X_train.shape[0],
+        X_val.shape[0],
+        X_test.shape[0],
     )
     logger.info(
         "Train class balance | class 1: %.2f%% | class 0: %.2f%%",
-        y_train.mean() * 100, (1 - y_train.mean()) * 100,
+        y_train.mean() * 100,
+        (1 - y_train.mean()) * 100,
     )
     return X_train, X_val, X_test, y_train, y_val, y_test
 
 
 # ──────────────────────────────────────────────
-# 5. WINSORIZACIÓN (anti-outliers)
+# 6. Winsorisation
 # ──────────────────────────────────────────────
 
+
 def winsorize_features(
-    X_train: np.ndarray,
-    X_val:   np.ndarray,
-    X_test:  np.ndarray,
-    feature_cols: List[str],
+    X_train: FloatArray,
+    X_val: FloatArray,
+    X_test: FloatArray,
+    feature_cols: list[str],
     lower: float,
     upper: float,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Limita los valores extremos de las features de retorno al rango [lower, upper]
-    (percentiles; por defecto [1%, 99%]).
+) -> tuple[FloatArray, FloatArray, FloatArray]:
+    """Clip the return features to the ``[lower, upper]`` percentiles of train.
 
-    Motivación: el colapso COVID (marzo 2020) generó retornos > 10 que
-    distorsionan LogReg, MLP y SVM. Los percentiles se calculan SOLO sobre
-    train para evitar data leakage.
+    Motivation: the COVID crash (March 2020) produced returns > 10 that distort
+    LogReg, MLP and SVM. Percentiles are computed ONLY on train to avoid
+    leakage. The arrays are modified in place and also returned.
     """
-    retorno_idx = [i for i, c in enumerate(feature_cols) if "ret" in c or "return" in c]
+    return_idx = [i for i, c in enumerate(feature_cols) if "ret" in c or "return" in c]
 
-    for idx in retorno_idx:
+    for idx in return_idx:
         lo = np.percentile(X_train[:, idx], lower * 100)
         hi = np.percentile(X_train[:, idx], upper * 100)
         X_train[:, idx] = np.clip(X_train[:, idx], lo, hi)
-        X_val[:, idx]   = np.clip(X_val[:, idx],   lo, hi)
-        X_test[:, idx]  = np.clip(X_test[:, idx],  lo, hi)
+        X_val[:, idx] = np.clip(X_val[:, idx], lo, hi)
+        X_test[:, idx] = np.clip(X_test[:, idx], lo, hi)
 
-    logger.info("Winsorized return features: %d", len(retorno_idx))
+    logger.info("Winsorized return features: %d", len(return_idx))
     return X_train, X_val, X_test
 
 
 # ──────────────────────────────────────────────
-# 6. ESCALADO
+# 7. Scaling
 # ──────────────────────────────────────────────
 
-def scale_features(
-    X_train: np.ndarray,
-    X_val:   np.ndarray,
-    X_test:  np.ndarray,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, StandardScaler]:
-    """
-    Estandariza features a media 0 y std 1.
 
-    fit() SOLO sobre train. Los datos de val y test reciben solo transform()
-    para no introducir data leakage.
+def scale_features(
+    X_train: FloatArray,
+    X_val: FloatArray,
+    X_test: FloatArray,
+) -> tuple[FloatArray, FloatArray, FloatArray, StandardScaler]:
+    """Standardise features to zero mean and unit variance.
+
+    ``fit`` is called ONLY on train; validation and test only get ``transform``.
     """
     scaler = StandardScaler()
-    X_train_sc = scaler.fit_transform(X_train)
-    X_val_sc   = scaler.transform(X_val)
-    X_test_sc  = scaler.transform(X_test)
+    X_train_sc: FloatArray = scaler.fit_transform(X_train)
+    X_val_sc: FloatArray = scaler.transform(X_val)
+    X_test_sc: FloatArray = scaler.transform(X_test)
 
     logger.debug("Scaled train mean (first 3): %s", X_train_sc.mean(axis=0)[:3].round(4))
     logger.debug("Scaled train std (first 3): %s", X_train_sc.std(axis=0)[:3].round(4))
@@ -332,25 +364,45 @@ def scale_features(
 
 
 # ──────────────────────────────────────────────
-# 7. PIPELINE PRINCIPAL
+# Full pipeline
 # ──────────────────────────────────────────────
+
 
 def preprocess(
     df: pd.DataFrame,
     split: SplitSettings,
     preprocessing: PreprocessingSettings,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray,
-           np.ndarray, np.ndarray, np.ndarray,
-           StandardScaler, List[str]]:
-    """
-    Pipeline completo: de DataFrame crudo a arrays listos para entrenar.
+) -> tuple[
+    FloatArray,
+    FloatArray,
+    FloatArray,
+    FloatArray,
+    FloatArray,
+    FloatArray,
+    StandardScaler,
+    list[str],
+]:
+    """Run the full preprocessing: from the merged DataFrame to model-ready arrays.
+
+    Parameters
+    ----------
+    df
+        Output of ``load_oil_data``.
+    split
+        Chronological split boundaries.
+    preprocessing
+        VIF and winsorisation thresholds.
 
     Returns
     -------
-    X_train, X_val, X_test : np.ndarray (escalados)
-    y_train, y_val, y_test : np.ndarray
-    scaler                 : StandardScaler ajustado
-    feature_cols           : List[str] con los nombres de las features
+    X_train, X_val, X_test : numpy.ndarray
+        Scaled feature matrices.
+    y_train, y_val, y_test : numpy.ndarray
+        Float labels.
+    scaler : sklearn.preprocessing.StandardScaler
+        Scaler fitted on train.
+    feature_cols : list of str
+        Feature names, in column order.
     """
     logger.info("Preprocessing pipeline started")
 
@@ -359,22 +411,26 @@ def preprocess(
     df = handle_nulls(df, feature_cols)
     train_end = pd.Timestamp(split.train_end)
     val_end = pd.Timestamp(split.val_end)
-    feature_cols = filter_features_by_vif(
-        df, feature_cols, train_end, preprocessing.vif_threshold
-    )
+    feature_cols = filter_features_by_vif(df, feature_cols, train_end, preprocessing.vif_threshold)
 
     X_train, X_val, X_test, y_train, y_val, y_test = split_temporal(
         df, feature_cols, train_end, val_end
     )
     X_train, X_val, X_test = winsorize_features(
-        X_train, X_val, X_test, feature_cols,
-        preprocessing.winsor_lower, preprocessing.winsor_upper,
+        X_train,
+        X_val,
+        X_test,
+        feature_cols,
+        preprocessing.winsor_lower,
+        preprocessing.winsor_upper,
     )
     X_train_sc, X_val_sc, X_test_sc, scaler = scale_features(X_train, X_val, X_test)
 
     logger.info(
         "Preprocessing done | X_train %s | X_val %s | X_test %s",
-        X_train_sc.shape, X_val_sc.shape, X_test_sc.shape,
+        X_train_sc.shape,
+        X_val_sc.shape,
+        X_test_sc.shape,
     )
 
     return X_train_sc, X_val_sc, X_test_sc, y_train, y_val, y_test, scaler, feature_cols
