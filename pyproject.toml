@@ -1,0 +1,33 @@
+[project]
+name = "brent-forecast"
+version = "0.1.0"
+description = "Next-day Brent crude oil price direction classifier with market and geopolitical features."
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "Rafael Hernando Herias" }]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "matplotlib>=3.10",
+    "numpy>=2.2",
+    "pandas>=2.2",
+    "scikit-learn>=1.6",
+    "statsmodels>=0.14.4",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.15",
+    "pandas-stubs>=2.2",
+    "pre-commit>=4.0",
+    "pytest>=8.3",
+    "ruff>=0.11",
+]
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"

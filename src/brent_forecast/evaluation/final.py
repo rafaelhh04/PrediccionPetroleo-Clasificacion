@@ -16,7 +16,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve
 
-from utils.evaluation import compute_metrics, print_full_metrics, plot_confusion_matrix
+from brent_forecast.evaluation.metrics import compute_metrics, print_full_metrics, plot_confusion_matrix
 
 
 PLOTS_DIR = "results/plots"
@@ -34,7 +34,7 @@ def evaluate_on_test(fitted_results: list, X_test: np.ndarray, y_test: np.ndarra
     - 'metrics_test': dict con las 5 métricas estándar.
     - 'y_pred_test', 'y_proba_test'.
     """
-    from models.neural_network import predict_proba as mlp_predict_proba
+    from brent_forecast.models.neural_network import predict_proba as mlp_predict_proba
 
     print("\n" + "=" * 60)
     print("EVALUACIÓN FINAL SOBRE X_TEST")

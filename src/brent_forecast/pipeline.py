@@ -2,15 +2,11 @@
 Proyecto de Aprendizaje Automático — Predicción del Precio del Brent
 Curso 2025-26
 
-Punto de entrada único del proyecto. Reproduce todos los resultados
-con una sola ejecución desde la raíz del repo:
+Orquestación de la pipeline completa. Se invoca desde la CLI:
 
-    python main.py
+    brent train
 
 Toda la salida por consola se duplica en results/run_log.txt (Tee).
-Estado actual: Fases 1 (carga), 2 (preprocesado) y 3 (modelos sklearn
-+ sistema de evaluación). La Fase 4 (MLP NumPy) se añadirá en el bucle
-de modelos sin tocar el resto del flujo.
 """
 
 import os
@@ -19,33 +15,32 @@ import numpy as np
 from datetime import datetime
 
 RANDOM_SEED = 42
-np.random.seed(RANDOM_SEED)
 
-from data.load_data import load_oil_data
-from utils.preprocessing import preprocess
-from utils.evaluation import print_summary_table, plot_roc_comparison
-from utils.tuning import make_time_series_cv
-from utils.learning_curves import plot_learning_curve_sklearn, plot_learning_curve_mlp
-from utils.final_evaluation import (
+from brent_forecast.data.load import load_oil_data
+from brent_forecast.features.preprocessing import preprocess
+from brent_forecast.evaluation.metrics import print_summary_table, plot_roc_comparison
+from brent_forecast.models.tuning import make_time_series_cv
+from brent_forecast.evaluation.learning_curves import plot_learning_curve_sklearn, plot_learning_curve_mlp
+from brent_forecast.evaluation.final import (
     evaluate_on_test,
     plot_roc_test_comparison,
     plot_train_val_test_summary,
     print_final_summary_table,
 )
 
-from models.logistic_regression import (
+from brent_forecast.models.logistic_regression import (
     train_and_evaluate   as run_logreg,
     tune_hyperparameters as tune_logreg,
 )
-from models.svm_model import (
+from brent_forecast.models.svm import (
     train_and_evaluate   as run_svm,
     tune_hyperparameters as tune_svm,
 )
-from models.random_forest import (
+from brent_forecast.models.random_forest import (
     train_and_evaluate   as run_rf,
     tune_hyperparameters as tune_rf,
 )
-from models.neural_network import (
+from brent_forecast.models.neural_network import (
     train_and_evaluate   as run_mlp,
     tune_hyperparameters as tune_mlp,
 )
@@ -149,11 +144,12 @@ def _run_pipeline() -> None:
           f"{best_test['model_name']} (AUC = {best_test['metrics_test']['auc_roc']:.4f})")
 
 
-def main() -> None:
+def run() -> None:
     """
     Envoltorio: prepara el Tee (stdout + results/run_log.txt) y ejecuta la pipeline.
     Garantiza que stdout vuelva a su estado original incluso si la pipeline falla.
     """
+    np.random.seed(RANDOM_SEED)
     os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
 
     # Asegurar que stdout puede emitir UTF-8 (la consola Windows por defecto
@@ -178,6 +174,3 @@ def main() -> None:
         # Mensaje final solo por consola (ya no se duplica en el log)
         print(f"[main] (stdout restaurado; log cerrado: {LOG_PATH})")
 
-
-if __name__ == "__main__":
-    main()

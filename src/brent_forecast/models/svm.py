@@ -16,13 +16,13 @@ import numpy as np
 from sklearn.svm import SVC
 from sklearn.model_selection import GridSearchCV
 
-from utils.evaluation import (
+from brent_forecast.evaluation.metrics import (
     compute_metrics,
     print_full_metrics,
     plot_confusion_matrix,
     plot_roc_curve,
 )
-from utils.tuning import make_time_series_cv, print_grid_results, SCORING
+from brent_forecast.models.tuning import make_time_series_cv, print_grid_results, SCORING
 
 MODEL_NAME = "SVM (RBF)"
 
