@@ -175,13 +175,47 @@ Si el tiempo es limitado, el **mínimo viable de portfolio** es: Fases 1 + 2 + 3
 | Fase | Estado | Ramas mergeadas | Decisiones / desviaciones |
 |------|--------|-----------------|---------------------------|
 | 0 Plan | ✅ | `docs/roadmap-profesionalizacion` | Plan inicial creado |
-| 1 | ⏳ pendiente | | |
+| 1 Fundamentos | ✅ (PRs abiertos, encadenados) | `chore/gitignore-cleanup`, `chore/project-packaging`, `feat/data-download`, `feat/config-management`, `refactor/structured-logging`, `chore/dev-tooling`, `docs/remove-stale-references` | uv + PEP 621 + src layout; CLI Typer; pydantic-settings + YAML + `BRENT_*`; logging estándar; ruff + mypy estricto + pre-commit. Ver notas de cierre ↓ |
 | 2 | ⏳ pendiente | | |
 | 3 | ⏳ pendiente | | |
 | 4 | ⏳ pendiente | | |
 | 5 | ⏳ pendiente | | |
 | 6 | ⏳ pendiente | | |
 | 7 | ⏳ pendiente | | |
+
+
+### Notas de cierre — Fase 1
+
+**Verificación.** Kaggle no era accesible desde el entorno de desarrollo (proxy 403, sin credenciales), así que la
+equivalencia se demostró sobre un dataset sintético con el mismo esquema: el `main.py` original y `brent train`
+producen las 60 métricas impresas idénticas y un `results/metrics.json` idéntico byte a byte en cada rama. Con los
+datos reales hay que ejecutar una vez `brent data download` (o la descarga manual + `brent data verify`), comprobar
+la tabla de referencia (AUC test 0.4858 / 0.4909 / 0.4927 / 0.5002) y hacer commit de `configs/data_checksums.json`,
+que hoy contiene `null` (se rellena en el primer uso).
+
+**Decisiones y desviaciones respecto al plan.**
+- `main.py` eliminado: la orquestación vive en `brent_forecast.pipeline` y solo se invoca con `brent train`
+  (o `python -m brent_forecast`). No se creó `brent evaluate` (la evaluación sobre test forma parte de `train`).
+- `brent data download` identifica cada CSV por su cabecera (no confía en los nombres de Kaggle) y añade
+  `brent data verify` para la descarga manual. Checksums con *trust on first use* + `--update-checksums`.
+- Configuración: `configs/default.yaml` es la única fuente de valores por defecto (los modelos pydantic solo
+  declaran tipos y validaciones). Precedencia: argumentos > entorno (`BRENT_`, separador `__`) > YAML.
+  La semilla se inyecta como `random_state` en los 4 modelos (también en el MLP).
+- Logging: `results/run.log` sustituye a `results/run_log.txt`; opción global `--log-level`.
+- Hooks de ruff, codespell y mypy como hooks *locales* (`uv run --frozen`), para que sus versiones sean las
+  de `uv.lock`. mypy `--strict` pasa sin ningún `type: ignore`; solo sklearn/statsmodels/kagglehub ignoran
+  imports sin tipos. Ruff ignora N803/N806 (convención `X_train` de scikit-learn).
+- Refactor sin cambio de lógica: helpers comunes `grid_search()` y `fit_and_evaluate()` para los modelos sklearn;
+  `predict_proba` del MLP ya no recibe `dropout_p` (no tenía efecto en inferencia).
+- Se adelantaron 13 tests (descarga con *downloader* inyectado y configuración) como semilla de la Fase 2.
+
+**Deuda técnica detectada (no corregida para no alterar métricas).**
+- `create_label`: `NaN > 0` es `False`, así que la última fila se queda con `label = 0` en vez de eliminarse
+  (afecta a 1 fila del test). Corregir en la Fase 3 y re-baselinar.
+- `create_label` valida la alineación con `assert` (se desactiva con `python -O`).
+- `SVC(probability=True)` emite `FutureWarning` en scikit-learn 1.9 (deprecado, se elimina en 1.11): migrar a
+  `CalibratedClassifierCV` en la Fase 3.
+- `_validate` en `data/load.py` tiene rangos de fechas fijos (2009–2011 / ≥ 2025).
 
 ---
 
