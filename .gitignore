@@ -90,3 +90,8 @@ desktop.ini
 dist/
 build/
 *.egg-info/
+
+# ─────────────────────────────────────────────
+# Generated results (re-created on every training run)
+# ─────────────────────────────────────────────
+results/
