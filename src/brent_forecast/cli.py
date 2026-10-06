@@ -1,13 +1,14 @@
 """Command-line interface for the Brent direction classifier."""
 
 import json
-import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 import typer
 from pydantic import ValidationError
 
 from brent_forecast.config import DEFAULT_CONFIG_PATH, Settings, load_settings
+from brent_forecast.logging_config import LOG_LEVELS, setup_logging
 
 app = typer.Typer(
     name="brent",
@@ -21,6 +22,21 @@ app.add_typer(data_app, name="data")
 app.add_typer(config_app, name="config")
 
 
+@dataclass(frozen=True)
+class _State:
+    """Global options shared by every command."""
+
+    config_path: Path
+    log_level: str
+
+
+def _validate_log_level(value: str) -> str:
+    level = value.upper()
+    if level not in LOG_LEVELS:
+        raise typer.BadParameter(f"choose from {', '.join(LOG_LEVELS)}")
+    return level
+
+
 @app.callback()
 def main(
     ctx: typer.Context,
@@ -30,16 +46,23 @@ def main(
         "-c",
         help="YAML configuration file (values can be overridden with BRENT_* env vars).",
     ),
+    log_level: str = typer.Option(
+        "INFO",
+        "--log-level",
+        "-l",
+        callback=_validate_log_level,
+        help=f"Logging level: {', '.join(LOG_LEVELS)}.",
+    ),
 ) -> None:
     """Next-day Brent crude oil price direction classifier."""
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    ctx.obj = config
+    setup_logging(log_level)
+    ctx.obj = _State(config_path=config, log_level=log_level)
 
 
 def _settings(ctx: typer.Context) -> Settings:
     """Load the settings for the config path stored by the root callback."""
     try:
-        return load_settings(ctx.obj)
+        return load_settings(ctx.obj.config_path)
     except (FileNotFoundError, ValidationError) as exc:
         typer.secho(f"Invalid configuration: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=2) from exc
@@ -50,7 +73,10 @@ def train(ctx: typer.Context) -> None:
     """Run the full pipeline: load, preprocess, tune, train and evaluate on test."""
     from brent_forecast.pipeline import run
 
-    run(_settings(ctx))
+    settings = _settings(ctx)
+    setup_logging(ctx.obj.log_level, log_file=settings.paths.log_file)
+    run(settings)
+    typer.echo(f"Log written to {settings.paths.log_file}")
 
 
 @config_app.command("show")

@@ -10,6 +10,7 @@ Fase 5: añadida `tune_hyperparameters` con TimeSeriesSplit + GridSearchCV.
 hyperparámetros encontrados por el tuner.
 """
 
+import logging
 from pathlib import Path
 from typing import Any, Dict
 
@@ -19,12 +20,14 @@ from sklearn.model_selection import GridSearchCV
 
 from brent_forecast.evaluation.metrics import (
     compute_metrics,
-    print_full_metrics,
+    log_full_metrics,
     plot_confusion_matrix,
     plot_roc_curve,
 )
 from brent_forecast.config import ModelSettings
-from brent_forecast.models.tuning import print_grid_results
+from brent_forecast.models.tuning import log_grid_results
+
+logger = logging.getLogger(__name__)
 
 MODEL_NAME = "Logistic Regression"
 
@@ -54,7 +57,7 @@ def tune_hyperparameters(
         }
         for i in range(len(grid.cv_results_["params"]))
     ]
-    print_grid_results(MODEL_NAME, results, top_k=5)
+    log_grid_results(MODEL_NAME, results, top_k=5)
 
     return {**default_params, **grid.best_params_}
 
@@ -74,7 +77,7 @@ def train_and_evaluate(
     Nota: el parámetro `penalty` se omite — su default es L2, y pasar
     `penalty='l2'` explícitamente lanza FutureWarning en sklearn ≥1.8.
     """
-    print(f"\n[{MODEL_NAME}] Entrenando con params: {params}...")
+    logger.info("[%s] Training with params: %s", MODEL_NAME, params)
 
     model = LogisticRegression(**params)
     model.fit(X_train, y_train)
@@ -87,8 +90,8 @@ def train_and_evaluate(
     metrics_train = compute_metrics(y_train, y_pred_train, y_proba_train)
     metrics_val   = compute_metrics(y_val,   y_pred_val,   y_proba_val)
 
-    print_full_metrics(metrics_train, "Train", MODEL_NAME)
-    print_full_metrics(metrics_val,   "Val",   MODEL_NAME)
+    log_full_metrics(metrics_train, "Train", MODEL_NAME)
+    log_full_metrics(metrics_val,   "Val",   MODEL_NAME)
 
     plot_confusion_matrix(y_val, y_pred_val, MODEL_NAME, plots_dir)
     plot_roc_curve(y_val, y_proba_val, MODEL_NAME, plots_dir)
@@ -106,10 +109,11 @@ def train_and_evaluate(
 
 
 def _print_top_coefficients(model: LogisticRegression, feature_cols: list, top_k: int = 5) -> None:
-    """Imprime las features con mayor valor absoluto del coeficiente."""
+    """Registra las features con mayor valor absoluto del coeficiente."""
     coefs = model.coef_[0]
     order = np.argsort(np.abs(coefs))[::-1]
-    print(f"[{MODEL_NAME}] Top {top_k} features por |coef|:")
-    for i in order[:top_k]:
-        sign = "+" if coefs[i] > 0 else "-"
-        print(f"    {sign} {feature_cols[i]:<25} coef = {coefs[i]:+.4f}")
+    lines = [
+        f"    {'+' if coefs[i] > 0 else '-'} {feature_cols[i]:<25} coef = {coefs[i]:+.4f}"
+        for i in order[:top_k]
+    ]
+    logger.info("[%s] Top %d features by |coef|:\n%s", MODEL_NAME, top_k, "\n".join(lines))

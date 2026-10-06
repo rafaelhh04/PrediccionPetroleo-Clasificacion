@@ -16,12 +16,16 @@ son las GEOPOLÍTICAS (post _resolve_overlap). Los originales del oil dataset
 están en oil_event_*.
 """
 
+import logging
+
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from typing import Tuple, List
 
 from brent_forecast.config import PreprocessingSettings, SplitSettings
+
+logger = logging.getLogger(__name__)
 
 
 # ──────────────────────────────────────────────
@@ -47,11 +51,11 @@ def create_label(df: pd.DataFrame) -> pd.DataFrame:
         retorno_siguiente = df.loc[i + 1, "brent_return"]
         label_actual = df.loc[i, "label"]
         assert (retorno_siguiente > 0) == (label_actual == 1.0), (
-            f"Desalineación en fila {i}: retorno={retorno_siguiente:.4f}, label={label_actual}"
+            f"Misaligned label at row {i}: next return={retorno_siguiente:.4f}, label={label_actual}"
         )
 
     df = df.dropna(subset=["label"]).reset_index(drop=True)
-    print(f"[label] Distribución de clases:\n{df['label'].value_counts(normalize=True).round(3)}")
+    logger.info("Class distribution:\n%s", df['label'].value_counts(normalize=True).round(3))
     return df
 
 
@@ -131,8 +135,7 @@ def engineer_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
         if c not in exclude and df[c].dtype != object
     ]
 
-    print(f"[features] Total features seleccionadas: {len(feature_cols)}")
-    print(f"[features] {feature_cols}")
+    logger.info("Selected %d features: %s", len(feature_cols), feature_cols)
     return df, feature_cols
 
 
@@ -157,7 +160,9 @@ def handle_nulls(df: pd.DataFrame, feature_cols: List[str]) -> pd.DataFrame:
     n_before = len(df)
     df = df.dropna(subset=feature_cols).reset_index(drop=True)
     n_dropped = n_before - len(df)
-    print(f"[nulls] Filas eliminadas por nulos en features: {n_dropped} ({n_dropped/n_before*100:.1f}%)")
+    logger.info(
+        "Rows dropped because of null features: %d (%.1f%%)", n_dropped, n_dropped / n_before * 100
+    )
     return df
 
 
@@ -188,7 +193,9 @@ def filter_features_by_vif(
 
     train_mask = df["date"] < train_end_date
     remaining = list(feature_cols)
-    print(f"[vif] Inicio del filtrado | features iniciales: {len(remaining)} | umbral VIF > {vif_threshold}")
+    logger.info(
+        "VIF filtering | initial features: %d | threshold VIF > %s", len(remaining), vif_threshold
+    )
 
     while len(remaining) > 1:
         X = df.loc[train_mask, remaining].values.astype(float)
@@ -208,19 +215,19 @@ def filter_features_by_vif(
         worst_idx = vifs.index(max_vif)
         worst_name = remaining[worst_idx]
         vif_str = "inf" if not np.isfinite(max_vif) else f"{max_vif:.2f}"
-        print(f"[vif]  Eliminada: {worst_name:<25} VIF = {vif_str}")
+        logger.info("VIF dropped: %-25s VIF = %s", worst_name, vif_str)
         remaining.pop(worst_idx)
 
     # Reporte final de VIFs de las features que sobreviven
     X_final = df.loc[train_mask, remaining].values.astype(float)
-    print(f"[vif] Features finales ({len(remaining)}):")
+    logger.info("VIF final features (%d):", len(remaining))
     for i, name in enumerate(remaining):
         try:
             v = float(variance_inflation_factor(X_final, i))
             v_str = "inf" if not np.isfinite(v) else f"{v:.2f}"
         except Exception:
             v_str = "n/a"
-        print(f"[vif]    {name:<25} VIF = {v_str}")
+        logger.info("  %-25s VIF = %s", name, v_str)
 
     return remaining
 
@@ -255,10 +262,14 @@ def split_temporal(
     y_val   = df.loc[val_mask,   "label"].values
     y_test  = df.loc[test_mask,  "label"].values
 
-    print(f"[split] Train:      {X_train.shape[0]} filas")
-    print(f"[split] Validación: {X_val.shape[0]} filas")
-    print(f"[split] Test:       {X_test.shape[0]} filas")
-    print(f"[split] Balance train — clase 1: {y_train.mean():.2%} | clase 0: {(1 - y_train.mean()):.2%}")
+    logger.info(
+        "Split sizes | train: %d | val: %d | test: %d",
+        X_train.shape[0], X_val.shape[0], X_test.shape[0],
+    )
+    logger.info(
+        "Train class balance | class 1: %.2f%% | class 0: %.2f%%",
+        y_train.mean() * 100, (1 - y_train.mean()) * 100,
+    )
     return X_train, X_val, X_test, y_train, y_val, y_test
 
 
@@ -291,7 +302,7 @@ def winsorize_features(
         X_val[:, idx]   = np.clip(X_val[:, idx],   lo, hi)
         X_test[:, idx]  = np.clip(X_test[:, idx],  lo, hi)
 
-    print(f"[winsorize] Features de retorno winsorizadas: {len(retorno_idx)}")
+    logger.info("Winsorized return features: %d", len(retorno_idx))
     return X_train, X_val, X_test
 
 
@@ -315,8 +326,8 @@ def scale_features(
     X_val_sc   = scaler.transform(X_val)
     X_test_sc  = scaler.transform(X_test)
 
-    print(f"[scaler] Media post-escalado (train, primeras 3): {X_train_sc.mean(axis=0)[:3].round(4)}")
-    print(f"[scaler] Std  post-escalado (train, primeras 3): {X_train_sc.std(axis=0)[:3].round(4)}")
+    logger.debug("Scaled train mean (first 3): %s", X_train_sc.mean(axis=0)[:3].round(4))
+    logger.debug("Scaled train std (first 3): %s", X_train_sc.std(axis=0)[:3].round(4))
     return X_train_sc, X_val_sc, X_test_sc, scaler
 
 
@@ -341,9 +352,7 @@ def preprocess(
     scaler                 : StandardScaler ajustado
     feature_cols           : List[str] con los nombres de las features
     """
-    print("\n" + "=" * 50)
-    print("PIPELINE DE PREPROCESADO")
-    print("=" * 50)
+    logger.info("Preprocessing pipeline started")
 
     df = create_label(df)
     df, feature_cols = engineer_features(df)
@@ -363,10 +372,9 @@ def preprocess(
     )
     X_train_sc, X_val_sc, X_test_sc, scaler = scale_features(X_train, X_val, X_test)
 
-    print("\n[preprocesado]  Pipeline completado")
-    print(f"[preprocesado] Shape X_train: {X_train_sc.shape}")
-    print(f"[preprocesado] Shape X_val:   {X_val_sc.shape}")
-    print(f"[preprocesado] Shape X_test:  {X_test_sc.shape}")
-    print("=" * 50 + "\n")
+    logger.info(
+        "Preprocessing done | X_train %s | X_val %s | X_test %s",
+        X_train_sc.shape, X_val_sc.shape, X_test_sc.shape,
+    )
 
     return X_train_sc, X_val_sc, X_test_sc, y_train, y_val, y_test, scaler, feature_cols
