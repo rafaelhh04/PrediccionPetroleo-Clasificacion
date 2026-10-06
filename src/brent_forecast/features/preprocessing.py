@@ -21,6 +21,8 @@ import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from typing import Tuple, List
 
+from brent_forecast.config import PreprocessingSettings, SplitSettings
+
 
 # ──────────────────────────────────────────────
 # 1. GENERACIÓN DE LA VARIABLE OBJETIVO
@@ -166,8 +168,8 @@ def handle_nulls(df: pd.DataFrame, feature_cols: List[str]) -> pd.DataFrame:
 def filter_features_by_vif(
     df: pd.DataFrame,
     feature_cols: List[str],
-    train_end_date: str = "2022-01-01",
-    vif_threshold: float = 10.0,
+    train_end_date: pd.Timestamp,
+    vif_threshold: float,
 ) -> List[str]:
     """
     Elimina iterativamente la feature con mayor VIF mientras alguna supere el umbral.
@@ -230,18 +232,20 @@ def filter_features_by_vif(
 def split_temporal(
     df: pd.DataFrame,
     feature_cols: List[str],
+    train_end: pd.Timestamp,
+    val_end: pd.Timestamp,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray,
            np.ndarray, np.ndarray, np.ndarray]:
     """
     Divide el dataset respetando el orden cronológico estricto.
 
-    Train:      2010–2021
-    Validación: 2022–2023
-    Test:       2024–2026
+    Train:      date <  train_end            (por defecto 2010–2021)
+    Validación: train_end <= date < val_end  (por defecto 2022–2023)
+    Test:       date >= val_end              (por defecto 2024–2026)
     """
-    train_mask = df["date"] < "2022-01-01"
-    val_mask   = (df["date"] >= "2022-01-01") & (df["date"] < "2024-01-01")
-    test_mask  = df["date"] >= "2024-01-01"
+    train_mask = df["date"] < train_end
+    val_mask   = (df["date"] >= train_end) & (df["date"] < val_end)
+    test_mask  = df["date"] >= val_end
 
     X_train = df.loc[train_mask, feature_cols].values
     X_val   = df.loc[val_mask,   feature_cols].values
@@ -267,11 +271,12 @@ def winsorize_features(
     X_val:   np.ndarray,
     X_test:  np.ndarray,
     feature_cols: List[str],
-    lower: float = 0.01,
-    upper: float = 0.99,
+    lower: float,
+    upper: float,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    Limita los valores extremos de las features de retorno al rango [1%, 99%].
+    Limita los valores extremos de las features de retorno al rango [lower, upper]
+    (percentiles; por defecto [1%, 99%]).
 
     Motivación: el colapso COVID (marzo 2020) generó retornos > 10 que
     distorsionan LogReg, MLP y SVM. Los percentiles se calculan SOLO sobre
@@ -321,6 +326,8 @@ def scale_features(
 
 def preprocess(
     df: pd.DataFrame,
+    split: SplitSettings,
+    preprocessing: PreprocessingSettings,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray,
            np.ndarray, np.ndarray, np.ndarray,
            StandardScaler, List[str]]:
@@ -341,10 +348,19 @@ def preprocess(
     df = create_label(df)
     df, feature_cols = engineer_features(df)
     df = handle_nulls(df, feature_cols)
-    feature_cols = filter_features_by_vif(df, feature_cols)
+    train_end = pd.Timestamp(split.train_end)
+    val_end = pd.Timestamp(split.val_end)
+    feature_cols = filter_features_by_vif(
+        df, feature_cols, train_end, preprocessing.vif_threshold
+    )
 
-    X_train, X_val, X_test, y_train, y_val, y_test = split_temporal(df, feature_cols)
-    X_train, X_val, X_test = winsorize_features(X_train, X_val, X_test, feature_cols)
+    X_train, X_val, X_test, y_train, y_val, y_test = split_temporal(
+        df, feature_cols, train_end, val_end
+    )
+    X_train, X_val, X_test = winsorize_features(
+        X_train, X_val, X_test, feature_cols,
+        preprocessing.winsor_lower, preprocessing.winsor_upper,
+    )
     X_train_sc, X_val_sc, X_test_sc, scaler = scale_features(X_train, X_val, X_test)
 
     print("\n[preprocesado]  Pipeline completado")

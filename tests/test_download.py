@@ -5,15 +5,20 @@ from pathlib import Path
 
 import pytest
 
+from brent_forecast.config import DataSettings
 from brent_forecast.data.download import (
-    EVENTS_FILENAME,
-    KAGGLE_DATASET,
-    OIL_FILENAME,
     ChecksumMismatchError,
     DataDownloadError,
     download_dataset,
     sha256sum,
     verify_checksums,
+)
+
+KAGGLE_DATASET = "owner/dataset"
+OIL_FILENAME = "oil.csv"
+EVENTS_FILENAME = "events.csv"
+DATA = DataSettings(
+    kaggle_dataset=KAGGLE_DATASET, oil_filename=OIL_FILENAME, events_filename=EVENTS_FILENAME
 )
 
 OIL_CSV = (
@@ -52,7 +57,7 @@ def test_download_copies_canonical_files_and_records_checksums(
     checksums = tmp_path / "checksums.json"
     downloader = _fake_downloader(kaggle_cache)
 
-    files = download_dataset(data_dir, checksums, force=True, downloader=downloader)
+    files = download_dataset(data_dir, checksums, DATA, force=True, downloader=downloader)
 
     assert downloader.calls == [(KAGGLE_DATASET, True)]  # type: ignore[attr-defined]
     assert set(files) == {OIL_FILENAME, EVENTS_FILENAME}
@@ -68,10 +73,10 @@ def test_download_is_idempotent_with_recorded_checksums(
 ) -> None:
     data_dir = tmp_path / "raw"
     checksums = tmp_path / "checksums.json"
-    download_dataset(data_dir, checksums, downloader=_fake_downloader(kaggle_cache))
+    download_dataset(data_dir, checksums, DATA, downloader=_fake_downloader(kaggle_cache))
     before = checksums.read_text()
 
-    download_dataset(data_dir, checksums, downloader=_fake_downloader(kaggle_cache))
+    download_dataset(data_dir, checksums, DATA, downloader=_fake_downloader(kaggle_cache))
 
     assert checksums.read_text() == before
 
@@ -79,22 +84,22 @@ def test_download_is_idempotent_with_recorded_checksums(
 def test_download_rejects_tampered_data(tmp_path: Path, kaggle_cache: Path) -> None:
     data_dir = tmp_path / "raw"
     checksums = tmp_path / "checksums.json"
-    download_dataset(data_dir, checksums, downloader=_fake_downloader(kaggle_cache))
+    download_dataset(data_dir, checksums, DATA, downloader=_fake_downloader(kaggle_cache))
     (kaggle_cache / "upstream_prices.csv").write_text(OIL_CSV + "2010-02-18,1,1,1,none,none,0\n")
 
     with pytest.raises(ChecksumMismatchError, match=OIL_FILENAME):
-        download_dataset(data_dir, checksums, downloader=_fake_downloader(kaggle_cache))
+        download_dataset(data_dir, checksums, DATA, downloader=_fake_downloader(kaggle_cache))
     assert not (data_dir / OIL_FILENAME).exists()
 
 
 def test_update_checksums_accepts_new_data(tmp_path: Path, kaggle_cache: Path) -> None:
     data_dir = tmp_path / "raw"
     checksums = tmp_path / "checksums.json"
-    download_dataset(data_dir, checksums, downloader=_fake_downloader(kaggle_cache))
+    download_dataset(data_dir, checksums, DATA, downloader=_fake_downloader(kaggle_cache))
     (kaggle_cache / "upstream_prices.csv").write_text(OIL_CSV + "2010-02-18,1,1,1,none,none,0\n")
 
     download_dataset(
-        data_dir, checksums, update_checksums=True, downloader=_fake_downloader(kaggle_cache)
+        data_dir, checksums, DATA, update_checksums=True, downloader=_fake_downloader(kaggle_cache)
     )
 
     recorded = json.loads(checksums.read_text())["files"]
@@ -106,7 +111,7 @@ def test_download_fails_when_a_dataset_is_missing(tmp_path: Path, kaggle_cache: 
 
     with pytest.raises(DataDownloadError, match=EVENTS_FILENAME):
         download_dataset(
-            tmp_path / "raw", tmp_path / "c.json", downloader=_fake_downloader(kaggle_cache)
+            tmp_path / "raw", tmp_path / "c.json", DATA, downloader=_fake_downloader(kaggle_cache)
         )
 
 
@@ -115,7 +120,7 @@ def test_download_fails_on_ambiguous_sources(tmp_path: Path, kaggle_cache: Path)
 
     with pytest.raises(DataDownloadError, match="Ambiguous"):
         download_dataset(
-            tmp_path / "raw", tmp_path / "c.json", downloader=_fake_downloader(kaggle_cache)
+            tmp_path / "raw", tmp_path / "c.json", DATA, downloader=_fake_downloader(kaggle_cache)
         )
 
 
@@ -124,9 +129,9 @@ def test_download_wraps_downloader_errors(tmp_path: Path) -> None:
         raise ConnectionError("403 Forbidden")
 
     with pytest.raises(DataDownloadError, match="manual download"):
-        download_dataset(tmp_path / "raw", tmp_path / "c.json", downloader=failing)
+        download_dataset(tmp_path / "raw", tmp_path / "c.json", DATA, downloader=failing)
 
 
 def test_verify_reports_missing_files(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
-        verify_checksums(tmp_path, tmp_path / "c.json")
+        verify_checksums(tmp_path, tmp_path / "c.json", DATA)

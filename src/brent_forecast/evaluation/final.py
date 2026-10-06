@@ -10,6 +10,8 @@ atrás a re-tunear.
 """
 
 import os
+from pathlib import Path
+
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
@@ -19,10 +21,13 @@ from sklearn.metrics import roc_curve
 from brent_forecast.evaluation.metrics import compute_metrics, print_full_metrics, plot_confusion_matrix
 
 
-PLOTS_DIR = "results/plots"
 
-
-def evaluate_on_test(fitted_results: list, X_test: np.ndarray, y_test: np.ndarray) -> list:
+def evaluate_on_test(
+    fitted_results: list,
+    X_test: np.ndarray,
+    y_test: np.ndarray,
+    plots_dir: Path,
+) -> list:
     """
     Para cada modelo en `fitted_results`, evalúa sobre (X_test, y_test).
 
@@ -47,8 +52,7 @@ def evaluate_on_test(fitted_results: list, X_test: np.ndarray, y_test: np.ndarra
         model = r["model"]
 
         if isinstance(model, dict) and "params" in model:
-            dropout_p = model.get("config", {}).get("dropout_p", 0.2)
-            y_proba = mlp_predict_proba(X_test, model["params"], dropout_p=dropout_p)
+            y_proba = mlp_predict_proba(X_test, model["params"])
         else:
             y_proba = model.predict_proba(X_test)[:, 1]
 
@@ -56,7 +60,7 @@ def evaluate_on_test(fitted_results: list, X_test: np.ndarray, y_test: np.ndarra
         metrics_test = compute_metrics(y_test, y_pred, y_proba)
 
         print_full_metrics(metrics_test, "Test", name)
-        plot_confusion_matrix(y_test, y_pred, f"{name} (test)")
+        plot_confusion_matrix(y_test, y_pred, f"{name} (test)", plots_dir)
 
         test_results.append({
             **r,
@@ -68,7 +72,7 @@ def evaluate_on_test(fitted_results: list, X_test: np.ndarray, y_test: np.ndarra
     return test_results
 
 
-def plot_roc_test_comparison(test_results: list, y_test: np.ndarray) -> str:
+def plot_roc_test_comparison(test_results: list, y_test: np.ndarray, plots_dir: Path) -> str:
     """ROC de los 4 modelos superpuestos sobre test."""
     fig, ax = plt.subplots(figsize=(6, 5))
     for r in test_results:
@@ -83,14 +87,14 @@ def plot_roc_test_comparison(test_results: list, y_test: np.ndarray) -> str:
     ax.grid(alpha=0.3)
     fig.tight_layout()
 
-    os.makedirs(PLOTS_DIR, exist_ok=True)
-    path = os.path.join(PLOTS_DIR, "roc_test_comparison.png")
+    os.makedirs(plots_dir, exist_ok=True)
+    path = os.path.join(plots_dir, "roc_test_comparison.png")
     fig.savefig(path, dpi=120)
     plt.close(fig)
     return path
 
 
-def plot_train_val_test_summary(test_results: list) -> str:
+def plot_train_val_test_summary(test_results: list, plots_dir: Path) -> str:
     """Gráfico de barras: AUC en train/val/test por modelo. Visualiza el shift."""
     names  = [r["model_name"]              for r in test_results]
     auc_tr = [r["metrics_train"]["auc_roc"] for r in test_results]
@@ -114,8 +118,8 @@ def plot_train_val_test_summary(test_results: list) -> str:
     ax.grid(axis="y", alpha=0.3)
     fig.tight_layout()
 
-    os.makedirs(PLOTS_DIR, exist_ok=True)
-    path = os.path.join(PLOTS_DIR, "train_val_test_summary.png")
+    os.makedirs(plots_dir, exist_ok=True)
+    path = os.path.join(plots_dir, "train_val_test_summary.png")
     fig.savefig(path, dpi=120)
     plt.close(fig)
     return path

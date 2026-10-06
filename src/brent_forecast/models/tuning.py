@@ -14,11 +14,7 @@ from typing import List, Dict, Any
 from sklearn.model_selection import TimeSeriesSplit
 
 
-CV_N_SPLITS = 5
-SCORING     = "roc_auc"
-
-
-def make_time_series_cv(n_splits: int = CV_N_SPLITS) -> TimeSeriesSplit:
+def make_time_series_cv(n_splits: int) -> TimeSeriesSplit:
     """
     Devuelve un TimeSeriesSplit configurado del proyecto.
 

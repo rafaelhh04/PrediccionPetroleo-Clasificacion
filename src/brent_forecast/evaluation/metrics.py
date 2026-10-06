@@ -10,6 +10,8 @@ de AUC, etc.).
 """
 
 import os
+from pathlib import Path
+
 import numpy as np
 import matplotlib
 
@@ -25,8 +27,6 @@ from sklearn.metrics import (
     confusion_matrix,
     roc_curve,
 )
-
-PLOTS_DIR = "results/plots"
 
 
 def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, y_proba: np.ndarray) -> dict:
@@ -68,7 +68,7 @@ def plot_confusion_matrix(
     y_true: np.ndarray,
     y_pred: np.ndarray,
     model_name: str,
-    save_dir: str = PLOTS_DIR,
+    save_dir: Path,
 ) -> str:
     """
     Genera y guarda la matriz de confusión como PNG.
@@ -103,7 +103,7 @@ def plot_roc_curve(
     y_true: np.ndarray,
     y_proba: np.ndarray,
     model_name: str,
-    save_dir: str = PLOTS_DIR,
+    save_dir: Path,
 ) -> str:
     """
     Genera y guarda la curva ROC como PNG.
@@ -128,7 +128,7 @@ def plot_roc_curve(
     return path
 
 
-def plot_roc_comparison(results: list, y_val: np.ndarray, save_dir: str = PLOTS_DIR) -> str:
+def plot_roc_comparison(results: list, y_val: np.ndarray, save_dir: Path) -> str:
     """
     Genera una curva ROC con TODOS los modelos superpuestos para comparar visualmente.
     """
