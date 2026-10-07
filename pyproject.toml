@@ -117,6 +117,7 @@ warn_required_dynamic_aliases = true
 [tool.codespell]
 # "te": table header "Gap te-val" (test minus validation); "fpr": false positive rate.
 ignore-words-list = "te,fpr"
-# Spanish documents and generated/local folders are not spell-checked. Patterns match
-# basenames, so they work for both `codespell` (CI) and the pre-commit file list.
-skip = "uv.lock,*.csv,ROADMAP.md,README.es.md,htmlcov,.venv,results"
+# Spanish documents and generated/local folders are not spell-checked. Both basename and
+# relative-path forms are listed: a bare `codespell` run (CI) matches basenames while the
+# explicit file list passed by pre-commit is matched as full paths.
+skip = "uv.lock,*.csv,ROADMAP.md,docs/ROADMAP.md,README.es.md,htmlcov,.venv,results"
