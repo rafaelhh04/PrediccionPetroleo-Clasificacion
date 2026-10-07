@@ -160,7 +160,8 @@ backtest) is the goal of the next phase of the [roadmap](docs/ROADMAP.md).
 │   ├── features/               # label, feature engineering, VIF, split, winsorisation, scaling
 │   ├── models/                 # LogReg, SVM, RF, NumPy MLP, shared tuning helpers
 │   └── evaluation/             # metrics, plots, learning curves, final test evaluation
-├── tests/
+├── tests/                      # unit, leakage-guard, gradient-check and property tests
+├── .github/                    # CI workflow, Dependabot, templates, CODEOWNERS, ruleset
 ├── Makefile
 └── pyproject.toml / uv.lock
 ```
@@ -170,12 +171,18 @@ backtest) is the goal of the next phase of the [roadmap](docs/ROADMAP.md).
 ```bash
 make install     # uv sync --frozen + pre-commit install
 make lint        # all pre-commit hooks: ruff, codespell, mypy --strict, file hygiene
-make test        # pytest
+make test        # unit tests (~30 s; `make test-all` adds the slow end-to-end ones)
+make coverage    # branch coverage, fails under 85 %
 make help        # every target
 ```
 
+Quality gates: ~130 tests on synthetic data (no real data, no network), data-leakage guards, a numerical
+gradient check of the NumPy MLP and property-based tests (Hypothesis). CI runs lint, `mypy --strict` and the
+tests on Python 3.12 and 3.13 for every pull request.
+
 Conventions: [Conventional Commits](https://www.conventionalcommits.org/), one branch per feature, English
 for code, docstrings (numpy style), logs and commits. Random seed `42` everywhere (`seed` in the config).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 
 ## Known limitations
 

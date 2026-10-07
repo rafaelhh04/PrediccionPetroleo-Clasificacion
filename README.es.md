@@ -114,7 +114,8 @@ backtest económico) es el objetivo de la siguiente fase del [roadmap](docs/ROAD
 │   ├── features/               # label, features, VIF, split, winsorización, escalado
 │   ├── models/                 # LogReg, SVM, RF, MLP NumPy y helpers de tuning
 │   └── evaluation/             # métricas, gráficas, curvas de aprendizaje, evaluación final
-├── tests/
+├── tests/                      # tests unitarios, de leakage, gradient check y propiedades
+├── .github/                    # CI, Dependabot, plantillas, CODEOWNERS, ruleset
 ├── Makefile
 └── pyproject.toml / uv.lock
 ```
@@ -122,7 +123,10 @@ backtest económico) es el objetivo de la siguiente fase del [roadmap](docs/ROAD
 ## Desarrollo
 
 `make install` (dependencias + hooks), `make lint` (ruff, codespell, mypy estricto), `make test`,
-`make help`. Código, docstrings, logs y commits en inglés; Conventional Commits; semilla `42`.
+`make coverage`, `make help`. ~130 tests con datos sintéticos, guardas de *data leakage*, *gradient check*
+numérico del MLP y tests de propiedades (Hypothesis); CI en Python 3.12 y 3.13 en cada PR. Código,
+docstrings, logs y commits en inglés; Conventional Commits; semilla `42`. Guía completa en
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Autor
 
