@@ -176,7 +176,7 @@ Si el tiempo es limitado, el **mínimo viable de portfolio** es: Fases 1 + 2 + 3
 |------|--------|-----------------|---------------------------|
 | 0 Plan | ✅ | `docs/roadmap-profesionalizacion` | Plan inicial creado |
 | 1 Fundamentos | ✅ (PRs abiertos, encadenados) | `chore/gitignore-cleanup`, `chore/project-packaging`, `feat/data-download`, `feat/config-management`, `refactor/structured-logging`, `chore/dev-tooling`, `docs/remove-stale-references` | uv + PEP 621 + src layout; CLI Typer; pydantic-settings + YAML + `BRENT_*`; logging estándar; ruff + mypy estricto + pre-commit. Ver notas de cierre ↓ |
-| 2 | ⏳ pendiente | | |
+| 2 Calidad | ✅ | `test/unit-test-suite` (#9), `test/leakage-guards` (#10), `test/mlp-gradient-check` (#11), `ci/github-actions` (#12), `chore/repo-governance` | 130 tests, 98 % cobertura de ramas, gradient check ≤ 2.5e-9, CI 3.12/3.13 verde. Protección de `main` versionada como ruleset (requiere importarla). Ver notas de cierre ↓ |
 | 3 | ⏳ pendiente | | |
 | 4 | ⏳ pendiente | | |
 | 5 | ⏳ pendiente | | |
@@ -216,6 +216,49 @@ que hoy contiene `null` (se rellena en el primer uso).
 - `SVC(probability=True)` emite `FutureWarning` en scikit-learn 1.9 (deprecado, se elimina en 1.11): migrar a
   `CalibratedClassifierCV` en la Fase 3.
 - `_validate` en `data/load.py` tiene rangos de fechas fijos (2009–2011 / ≥ 2025).
+
+
+### Notas de cierre — Fase 2
+
+**Resultado.** 130 tests (+1 `slow`, +1 `xfail` estricto) en ~30 s, **98 % de cobertura de ramas** (umbral
+85 % en `pyproject.toml`). CI (`.github/workflows/ci.yml`) en verde: lint + `mypy --strict` + codespell y
+tests en Python 3.12 y 3.13; job `slow` semanal y manual. Métricas de ML sin cambios: `brent train` sobre el
+dataset sintético de la Fase 1 produce un `metrics.json` idéntico byte a byte al del `main.py` original.
+
+**Qué cubren los tests.**
+- `tests/conftest.py`: datos sintéticos con semilla y el esquema de Kaggle (calendario diario completo y
+  submuestreo semanal para e2e rápidos), `settings` en `tmp_path`, `fast_settings` con grids mínimos,
+  aislamiento automático de `BRENT_*` y del root logger. Sin datos reales ni red.
+- `test_leakage.py`: lo ajustado (VIF, winsorización, scaler) no cambia al corromper val/test; reescribir
+  el futuro no cambia features pasadas (4 cortes); la label solo depende de t+1; espías en la pipeline
+  prueban que `X_test` no llega a tuning/entrenamiento/curvas y que se evalúa una sola vez. Validado por
+  mutación (3 fugas inyectadas → la suite falla).
+- `test_mlp_gradients.py`: diferencias centrales vs `backward()` para todos los parámetros, sin dropout y
+  con máscara fija; error relativo máx. 2.5e-9 (< 1e-6); control negativo; propiedades con Hypothesis.
+
+**Decisiones y desviaciones respecto al plan.**
+- `pytest-xdist` evaluado y descartado: sin mejora, los modelos ya usan todos los cores (`n_jobs=-1`).
+- La cobertura vive en `[tool.coverage]` (branch, `fail_under = 85`) y se activa con `--cov` (`make
+  coverage`, CI), para que ejecutar un solo fichero de tests no falle por umbral.
+- CI usa `UV_PYTHON=<matrix>`: sin él, `uv run` recrea en silencio un entorno 3.12 por `.python-version`.
+- Codecov: subida con el secret `CODECOV_TOKEN` y `fail_ci_if_error: false` (el umbral lo impone pytest).
+  **Pendiente del usuario:** dar de alta el secret (pasos en `CONTRIBUTING.md`); sin él la subida se rechaza
+  y el badge no muestra datos.
+- Protección de `main`: las herramientas disponibles no permiten configurarla; se versiona
+  `.github/rulesets/protect-main.json` (PR obligatorio, 3 checks requeridos, solo merge commit, sin
+  force-push ni borrado). **Pendiente del usuario:** importarla (*Settings → Rules → Rulesets → Import*).
+- Dependabot semanal agrupado para `uv` y GitHub Actions; CODEOWNERS, plantillas de PR/issues y
+  `CONTRIBUTING.md`.
+
+**Hallazgos (no corregidos: son lógica de ML, Fase 3).**
+- La label del último día de train es la dirección del primer día de validación (no hay purga/embargo):
+  los tests de leakage la excluyen explícitamente. Resolver con walk-forward + embargo.
+- Los overrides de configuración se fusionan en profundidad (*deep merge*): sobrescribir un `grid` desde
+  entorno o kwargs conserva las claves no mencionadas. Documentado en `tests/conftest.py`.
+
+**Lecciones de proceso.** `pre-commit run --all-files` solo ve ficheros versionados: hacer `git add` antes
+de ejecutar los hooks (documentado en `CONTRIBUTING.md`). Los tests de CLI normalizan la salida (ANSI),
+porque CI fuerza colores.
 
 ---
 
