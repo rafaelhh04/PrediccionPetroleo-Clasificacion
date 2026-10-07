@@ -120,7 +120,9 @@ def test_engineer_features_values(engineered: tuple[pd.DataFrame, list[str]]) ->
     df, _ = engineered
     row = df.iloc[100]
 
-    assert row["lag_ret_1"] == pytest.approx(np.log(row["brent_price"] / df.iloc[99]["brent_price"]))
+    assert row["lag_ret_1"] == pytest.approx(
+        np.log(row["brent_price"] / df.iloc[99]["brent_price"])
+    )
     assert np.isfinite(row["gpr_change"])  # defined once the 21-day window is full
     assert row["day_of_week"] == row["date"].dayofweek
     assert row["month"] == row["date"].month

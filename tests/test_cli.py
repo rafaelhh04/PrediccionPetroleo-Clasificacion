@@ -7,12 +7,12 @@ from pathlib import Path
 
 import pytest
 import yaml
-from conftest import CONFIG_PATH, EVENTS_FILENAME, OIL_FILENAME
 from typer.testing import CliRunner
 
 from brent_forecast.cli import app
 from brent_forecast.config import Settings
 from brent_forecast.data.download import save_checksums, sha256sum
+from conftest import CONFIG_PATH, EVENTS_FILENAME, OIL_FILENAME
 
 runner = CliRunner()
 
@@ -52,7 +52,9 @@ def test_invalid_log_level_is_rejected() -> None:
     assert "choose from DEBUG" in result.output
 
 
-def test_module_entry_point(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_module_entry_point(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.setattr(sys, "argv", ["brent", "--help"])
 
     with pytest.raises(SystemExit) as exc:
