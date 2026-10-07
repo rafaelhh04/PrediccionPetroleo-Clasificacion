@@ -31,6 +31,7 @@ brent = "brent_forecast.cli:app"
 [dependency-groups]
 dev = [
     "codespell>=2.4",
+    "hypothesis>=6.120",
     "mypy>=1.15",
     "pandas-stubs>=2.2",
     "pre-commit>=4.0",
