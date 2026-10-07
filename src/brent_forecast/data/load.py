@@ -3,9 +3,8 @@ import pandas as pd
 import numpy as np
 import os
 
-_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-#TODO: puede haber un cambio de rutas al probar al final
-DATA_DIR = _BASE_DIR
+# Carpeta de datos relativa a la raíz del proyecto (directorio de trabajo).
+DATA_DIR = os.path.join('data', 'raw')
 
 OIL_DATA_PATH = os.path.join(DATA_DIR, 'oil_geopolitics_dataset_2010_2026.csv')
 GEO_DATA_PATH = os.path.join(DATA_DIR, 'geopolitical_events_timeline.csv')

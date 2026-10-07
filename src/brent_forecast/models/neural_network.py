@@ -23,13 +23,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from utils.evaluation import (
+from brent_forecast.evaluation.metrics import (
     compute_metrics,
     print_full_metrics,
     plot_confusion_matrix,
     plot_roc_curve,
 )
-from utils.tuning import make_time_series_cv, print_grid_results
+from brent_forecast.models.tuning import make_time_series_cv, print_grid_results
 
 
 MODEL_NAME = "MLP NumPy"

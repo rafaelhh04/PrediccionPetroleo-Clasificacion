@@ -1,41 +1,43 @@
 """
-Modelo baseline: Regresión Logística con regularización L2.
+Random Forest: ensemble de árboles de decisión con bagging.
 
-Sirve como referencia mínima: cualquier modelo más complejo del proyecto
-(SVM, Random Forest, MLP-NumPy) debe superar las métricas de val obtenidas
-aquí para justificar su mayor complejidad.
+A diferencia de SVM/LogReg, no requiere features escaladas (los árboles
+trabajan con thresholds univariantes). Aun así se usa el mismo X_train_sc
+escalado que los demás modelos para mantener la comparabilidad estricta.
 
-Fase 5: añadida `tune_hyperparameters` con TimeSeriesSplit + GridSearchCV.
-`train_and_evaluate` acepta `params=None` (defaults Fase 3) o un dict de
-hyperparámetros encontrados por el tuner.
+Fase 5: añadida `tune_hyperparameters` con TimeSeriesSplit + GridSearchCV
+sobre n_estimators, max_depth y min_samples_leaf.
 """
 
 from typing import Any, Dict, Optional
 
 import numpy as np
-from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import GridSearchCV
 
-from utils.evaluation import (
+from brent_forecast.evaluation.metrics import (
     compute_metrics,
     print_full_metrics,
     plot_confusion_matrix,
     plot_roc_curve,
 )
-from utils.tuning import make_time_series_cv, print_grid_results, SCORING
+from brent_forecast.models.tuning import make_time_series_cv, print_grid_results, SCORING
 
-MODEL_NAME = "Logistic Regression"
+MODEL_NAME = "Random Forest"
 
 
 DEFAULT_PARAMS: Dict[str, Any] = {
-    "C": 1.0,
-    "solver": "lbfgs",
-    "max_iter": 1000,
-    "random_state": 42,
+    "n_estimators":     200,
+    "max_depth":        10,
+    "min_samples_leaf": 20,
+    "n_jobs":           -1,
+    "random_state":     42,
 }
 
 GRID: Dict[str, list] = {
-    "C": [0.01, 0.1, 1.0, 10.0],
+    "n_estimators":     [100, 200],
+    "max_depth":        [5, 10, 20],
+    "min_samples_leaf": [10, 20, 50],
 }
 
 
@@ -44,13 +46,12 @@ def tune_hyperparameters(
     y_train: np.ndarray,
     cv=None,
 ) -> Dict[str, Any]:
-    """
-    Grid search con TimeSeriesSplit sobre el espacio definido en GRID.
-    Devuelve un dict de hyperparámetros completos (DEFAULT_PARAMS + best).
-    """
+    """Grid search con TimeSeriesSplit. 18 combos × 5 folds = 90 fits."""
     cv = cv or make_time_series_cv()
-    base = LogisticRegression(**DEFAULT_PARAMS)
-    grid = GridSearchCV(base, GRID, cv=cv, scoring=SCORING, n_jobs=-1, refit=False)
+    # n_jobs=1 en el GridSearchCV externo para no anidar paralelismo con n_jobs=-1
+    # del RF interno (joblib gestiona, pero explicitar evita oversubscription).
+    base = RandomForestClassifier(**DEFAULT_PARAMS)
+    grid = GridSearchCV(base, GRID, cv=cv, scoring=SCORING, n_jobs=1, refit=False)
     grid.fit(X_train, y_train)
 
     results = [
@@ -75,18 +76,14 @@ def train_and_evaluate(
     params: Optional[Dict[str, Any]] = None,
 ) -> dict:
     """
-    Entrena LogReg sobre train, predice sobre val, calcula métricas y plots.
+    Entrena Random Forest.
 
     Si `params` is None usa DEFAULT_PARAMS (comportamiento Fase 3).
-    En Fase 5 se pasa el dict devuelto por `tune_hyperparameters`.
-
-    Nota: el parámetro `penalty` se omite — su default es L2, y pasar
-    `penalty='l2'` explícitamente lanza FutureWarning en sklearn ≥1.8.
     """
-    print(f"\n[{MODEL_NAME}] Entrenando con params: {params or DEFAULT_PARAMS}...")
     params = params or DEFAULT_PARAMS
+    print(f"\n[{MODEL_NAME}] Entrenando con params: {params}...")
 
-    model = LogisticRegression(**params)
+    model = RandomForestClassifier(**params)
     model.fit(X_train, y_train)
 
     y_pred_train  = model.predict(X_train)
@@ -103,7 +100,7 @@ def train_and_evaluate(
     plot_confusion_matrix(y_val, y_pred_val, MODEL_NAME)
     plot_roc_curve(y_val, y_proba_val, MODEL_NAME)
 
-    _print_top_coefficients(model, feature_cols, top_k=5)
+    _print_top_features(model, feature_cols, top_k=5)
 
     return {
         "model_name":    MODEL_NAME,
@@ -115,11 +112,10 @@ def train_and_evaluate(
     }
 
 
-def _print_top_coefficients(model: LogisticRegression, feature_cols: list, top_k: int = 5) -> None:
-    """Imprime las features con mayor valor absoluto del coeficiente."""
-    coefs = model.coef_[0]
-    order = np.argsort(np.abs(coefs))[::-1]
-    print(f"[{MODEL_NAME}] Top {top_k} features por |coef|:")
+def _print_top_features(model: RandomForestClassifier, feature_cols: list, top_k: int = 5) -> None:
+    """Imprime las features con mayor importancia (mean decrease in impurity)."""
+    importances = model.feature_importances_
+    order = np.argsort(importances)[::-1]
+    print(f"[{MODEL_NAME}] Top {top_k} features por importancia:")
     for i in order[:top_k]:
-        sign = "+" if coefs[i] > 0 else "-"
-        print(f"    {sign} {feature_cols[i]:<25} coef = {coefs[i]:+.4f}")
+        print(f"    {feature_cols[i]:<25} importance = {importances[i]:.4f}")

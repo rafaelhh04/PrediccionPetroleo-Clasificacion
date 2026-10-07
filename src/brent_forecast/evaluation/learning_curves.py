@@ -15,7 +15,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from sklearn.model_selection import learning_curve
-from utils.tuning import make_time_series_cv, SCORING
+from brent_forecast.models.tuning import make_time_series_cv, SCORING
 
 
 PLOTS_DIR = "results/plots"
@@ -49,7 +49,7 @@ def plot_learning_curve_mlp(X_train, y_train, mlp_params: dict, model_name: str 
     Reporta media y std de AUC train vs AUC val.
     """
     from sklearn.metrics import roc_auc_score
-    from models.neural_network import train_mlp, predict_proba
+    from brent_forecast.models.neural_network import train_mlp, predict_proba
 
     print(f"[learning_curve] Calculando curva manual para {model_name}...")
     cv = make_time_series_cv()
