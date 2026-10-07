@@ -35,6 +35,7 @@ dev = [
     "pandas-stubs>=2.2",
     "pre-commit>=4.0",
     "pytest>=8.3",
+    "pytest-cov>=6.0",
     "ruff>=0.11",
     "types-pyyaml>=6.0",
 ]
@@ -45,7 +46,20 @@ build-backend = "uv_build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+# Slow end-to-end tests are opt-in: `pytest -m slow` or `make test-all`.
+addopts = ["-ra", "--strict-markers", "--strict-config", "-m", "not slow"]
+markers = ["slow: end-to-end tests that run the CLI training pipeline (excluded by default)"]
+xfail_strict = true
+
+[tool.coverage.run]
+source = ["brent_forecast"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+skip_covered = true
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]
 
 [tool.ruff]
 line-length = 100
