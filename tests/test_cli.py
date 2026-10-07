@@ -1,9 +1,11 @@
 """Tests for the ``brent`` command-line interface (typer.testing.CliRunner)."""
 
 import json
+import re
 import runpy
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 import yaml
@@ -15,6 +17,23 @@ from brent_forecast.data.download import save_checksums, sha256sum
 from conftest import CONFIG_PATH, EVENTS_FILENAME, OIL_FILENAME
 
 runner = CliRunner()
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def plain(text: str) -> str:
+    """Strip ANSI styling (rich colours output when FORCE_COLOR is set, e.g. in CI)."""
+    return ANSI.sub("", text)
+
+
+class Result(NamedTuple):
+    exit_code: int
+    output: str
+
+
+def invoke(args: list[str]) -> Result:
+    """Run the CLI and return its exit code and colour-free output."""
+    result = runner.invoke(app, args)
+    return Result(result.exit_code, plain(result.output))
 
 
 def _write_config(settings: Settings, path: Path) -> Path:
@@ -32,7 +51,7 @@ def config_file(settings: Settings, tmp_path: Path) -> Path:
 
 
 def test_help_lists_commands() -> None:
-    result = runner.invoke(app, ["--help"])
+    result = invoke(["--help"])
 
     assert result.exit_code == 0
     for command in ("train", "data", "config"):
@@ -40,13 +59,13 @@ def test_help_lists_commands() -> None:
 
 
 def test_no_arguments_shows_help() -> None:
-    result = runner.invoke(app, [])
+    result = invoke([])
 
     assert "Usage" in result.output
 
 
 def test_invalid_log_level_is_rejected() -> None:
-    result = runner.invoke(app, ["--log-level", "verbose", "config", "show"])
+    result = invoke(["--log-level", "verbose", "config", "show"])
 
     assert result.exit_code == 2
     assert "choose from DEBUG" in result.output
@@ -61,7 +80,7 @@ def test_module_entry_point(
         runpy.run_module("brent_forecast", run_name="__main__")
 
     assert exc.value.code == 0
-    assert "Usage: brent" in capsys.readouterr().out
+    assert "Usage: brent" in plain(capsys.readouterr().out)
 
 
 # ── config show ───────────────────────────────────────────────
@@ -70,7 +89,7 @@ def test_module_entry_point(
 def test_config_show_prints_resolved_config(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BRENT_SEED", "7")
 
-    result = runner.invoke(app, ["--config", str(CONFIG_PATH), "config", "show"])
+    result = invoke(["--config", str(CONFIG_PATH), "config", "show"])
 
     assert result.exit_code == 0
     config = json.loads(result.output)
@@ -79,7 +98,7 @@ def test_config_show_prints_resolved_config(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_missing_config_file(tmp_path: Path) -> None:
-    result = runner.invoke(app, ["--config", str(tmp_path / "nope.yaml"), "config", "show"])
+    result = invoke(["--config", str(tmp_path / "nope.yaml"), "config", "show"])
 
     assert result.exit_code == 2
     assert "Invalid configuration" in result.output
@@ -88,7 +107,7 @@ def test_missing_config_file(tmp_path: Path) -> None:
 def test_invalid_config_values(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BRENT_CV__N_SPLITS", "1")
 
-    result = runner.invoke(app, ["--config", str(CONFIG_PATH), "config", "show"])
+    result = invoke(["--config", str(CONFIG_PATH), "config", "show"])
 
     assert result.exit_code == 2
     assert "n_splits" in result.output
@@ -100,8 +119,8 @@ def test_invalid_config_values(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_data_verify_records_then_accepts_checksums(
     config_file: Path, settings: Settings, raw_data_dir: Path
 ) -> None:
-    first = runner.invoke(app, ["--config", str(config_file), "data", "verify"])
-    second = runner.invoke(app, ["--config", str(config_file), "data", "verify"])
+    first = invoke(["--config", str(config_file), "data", "verify"])
+    second = invoke(["--config", str(config_file), "data", "verify"])
 
     assert first.exit_code == 0
     assert second.exit_code == 0
@@ -119,14 +138,14 @@ def test_data_verify_detects_mismatch(
         settings.data,
     )
 
-    result = runner.invoke(app, ["--config", str(config_file), "data", "verify"])
+    result = invoke(["--config", str(config_file), "data", "verify"])
 
     assert result.exit_code == 1
     assert "Checksum mismatch" in result.output
 
 
 def test_data_verify_reports_missing_files(config_file: Path) -> None:
-    result = runner.invoke(app, ["--config", str(config_file), "data", "verify"])
+    result = invoke(["--config", str(config_file), "data", "verify"])
 
     assert result.exit_code == 1
     assert "Missing data file" in result.output
@@ -157,7 +176,7 @@ def fake_kagglehub(monkeypatch: pytest.MonkeyPatch, raw_data_dir: Path, tmp_path
 
 
 def test_data_download(config_file: Path, settings: Settings, fake_kagglehub: Path) -> None:
-    result = runner.invoke(app, ["--config", str(config_file), "data", "download", "--force"])
+    result = invoke(["--config", str(config_file), "data", "download", "--force"])
 
     assert result.exit_code == 0, result.output
     assert (settings.paths.data_dir / OIL_FILENAME).is_file()
@@ -175,7 +194,7 @@ def test_data_download_failure_exits_with_error(
 
     monkeypatch.setattr(kagglehub, "dataset_download", broken)
 
-    result = runner.invoke(app, ["--config", str(config_file), "data", "download"])
+    result = invoke(["--config", str(config_file), "data", "download"])
 
     assert result.exit_code == 1
     assert "manual download" in result.output
@@ -189,7 +208,7 @@ def test_data_download_failure_exits_with_error(
 def test_train_end_to_end(fast_settings: Settings, raw_data_dir: Path, tmp_path: Path) -> None:
     config = _write_config(fast_settings, tmp_path / "fast.yaml")
 
-    result = runner.invoke(app, ["--config", str(config), "--log-level", "WARNING", "train"])
+    result = invoke(["--config", str(config), "--log-level", "WARNING", "train"])
 
     assert result.exit_code == 0, result.output
     assert fast_settings.paths.metrics_file.is_file()
