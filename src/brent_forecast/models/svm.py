@@ -10,6 +10,7 @@ Durante la búsqueda se usa probability=False para acelerar (~2× speedup);
 el modelo final se entrena con probability=True para reportar AUC val.
 """
 
+import logging
 from pathlib import Path
 from typing import Any, Dict
 
@@ -19,12 +20,14 @@ from sklearn.model_selection import GridSearchCV
 
 from brent_forecast.evaluation.metrics import (
     compute_metrics,
-    print_full_metrics,
+    log_full_metrics,
     plot_confusion_matrix,
     plot_roc_curve,
 )
 from brent_forecast.config import ModelSettings
-from brent_forecast.models.tuning import print_grid_results
+from brent_forecast.models.tuning import log_grid_results
+
+logger = logging.getLogger(__name__)
 
 MODEL_NAME = "SVM (RBF)"
 
@@ -57,7 +60,7 @@ def tune_hyperparameters(
         }
         for i in range(len(grid.cv_results_["params"]))
     ]
-    print_grid_results(MODEL_NAME, results, top_k=5)
+    log_grid_results(MODEL_NAME, results, top_k=5)
 
     return {**default_params, **grid.best_params_}
 
@@ -76,7 +79,7 @@ def train_and_evaluate(
 
     Coste: SVM RBF escala O(n²). Con ~3.000 filas tarda segundos.
     """
-    print(f"\n[{MODEL_NAME}] Entrenando con params: {params}...")
+    logger.info("[%s] Training with params: %s", MODEL_NAME, params)
 
     model = SVC(**params)
     model.fit(X_train, y_train)
@@ -89,9 +92,11 @@ def train_and_evaluate(
     metrics_train = compute_metrics(y_train, y_pred_train, y_proba_train)
     metrics_val   = compute_metrics(y_val,   y_pred_val,   y_proba_val)
 
-    print_full_metrics(metrics_train, "Train", MODEL_NAME)
-    print_full_metrics(metrics_val,   "Val",   MODEL_NAME)
-    print(f"[{MODEL_NAME}] Support vectors: {model.support_.shape[0]} de {X_train.shape[0]}")
+    log_full_metrics(metrics_train, "Train", MODEL_NAME)
+    log_full_metrics(metrics_val,   "Val",   MODEL_NAME)
+    logger.info(
+        "[%s] Support vectors: %d of %d", MODEL_NAME, model.support_.shape[0], X_train.shape[0]
+    )
 
     plot_confusion_matrix(y_val, y_pred_val, MODEL_NAME, plots_dir)
     plot_roc_curve(y_val, y_proba_val, MODEL_NAME, plots_dir)

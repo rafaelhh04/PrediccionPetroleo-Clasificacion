@@ -9,6 +9,7 @@ Si las métricas de test salen malas, se reportan tal cual. No se vuelve
 atrás a re-tunear.
 """
 
+import logging
 import os
 from pathlib import Path
 
@@ -18,7 +19,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve
 
-from brent_forecast.evaluation.metrics import compute_metrics, print_full_metrics, plot_confusion_matrix
+from brent_forecast.evaluation.metrics import compute_metrics, log_full_metrics, plot_confusion_matrix
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -41,10 +44,7 @@ def evaluate_on_test(
     """
     from brent_forecast.models.neural_network import predict_proba as mlp_predict_proba
 
-    print("\n" + "=" * 60)
-    print("EVALUACIÓN FINAL SOBRE X_TEST")
-    print("Una sola pasada — el test set NO se usa para nada más")
-    print("=" * 60)
+    logger.info("Final evaluation on X_test (single pass; the test set is not used for anything else)")
 
     test_results = []
     for r in fitted_results:
@@ -59,7 +59,7 @@ def evaluate_on_test(
         y_pred = (y_proba >= 0.5).astype(int)
         metrics_test = compute_metrics(y_test, y_pred, y_proba)
 
-        print_full_metrics(metrics_test, "Test", name)
+        log_full_metrics(metrics_test, "Test", name)
         plot_confusion_matrix(y_test, y_pred, f"{name} (test)", plots_dir)
 
         test_results.append({
@@ -125,15 +125,20 @@ def plot_train_val_test_summary(test_results: list, plots_dir: Path) -> str:
     return path
 
 
-def print_final_summary_table(test_results: list) -> None:
+def log_final_summary_table(test_results: list) -> None:
     """Tabla comparativa final: AUC train / val / test por modelo."""
-    print("\n" + "=" * 78)
-    print(f"{'Modelo':<25}{'AUC(tr)':>12}{'AUC(val)':>12}{'AUC(test)':>13}{'Gap te-val':>14}")
-    print("-" * 78)
+    lines = [
+        "=" * 78,
+        f"{'Model':<25}{'AUC(tr)':>12}{'AUC(val)':>12}{'AUC(test)':>13}{'Gap te-val':>14}",
+        "-" * 78,
+    ]
     for r in test_results:
         auc_tr = r["metrics_train"]["auc_roc"]
         auc_va = r["metrics_val"]["auc_roc"]
         auc_te = r["metrics_test"]["auc_roc"]
         gap    = auc_te - auc_va
-        print(f"{r['model_name']:<25}{auc_tr:>12.4f}{auc_va:>12.4f}{auc_te:>13.4f}{gap:>+14.4f}")
-    print("=" * 78 + "\n")
+        lines.append(
+            f"{r['model_name']:<25}{auc_tr:>12.4f}{auc_va:>12.4f}{auc_te:>13.4f}{gap:>+14.4f}"
+        )
+    lines.append("=" * 78)
+    logger.info("Final summary:\n%s", "\n".join(lines))

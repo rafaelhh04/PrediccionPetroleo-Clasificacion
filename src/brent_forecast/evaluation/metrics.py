@@ -9,6 +9,7 @@ sean directamente comparables (misma definición de macro, mismo umbral
 de AUC, etc.).
 """
 
+import logging
 import os
 from pathlib import Path
 
@@ -27,6 +28,8 @@ from sklearn.metrics import (
     confusion_matrix,
     roc_curve,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, y_proba: np.ndarray) -> dict:
@@ -52,16 +55,21 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, y_proba: np.ndarray)
     }
 
 
-def print_full_metrics(metrics: dict, set_name: str, model_name: str) -> None:
+def log_full_metrics(metrics: dict, set_name: str, model_name: str) -> None:
     """
     Vuelca las 5 métricas de un conjunto (train/val/test) con formato legible.
     """
-    print(f"[{model_name} — {set_name}]")
-    print(f"  Accuracy   : {metrics['accuracy']:.4f}")
-    print(f"  Precision  : {metrics['precision']:.4f}   (macro)")
-    print(f"  Recall     : {metrics['recall']:.4f}   (macro)")
-    print(f"  F1         : {metrics['f1']:.4f}   (macro)")
-    print(f"  AUC-ROC    : {metrics['auc_roc']:.4f}")
+    logger.info(
+        "[%s — %s]\n"
+        "  Accuracy   : %.4f\n"
+        "  Precision  : %.4f   (macro)\n"
+        "  Recall     : %.4f   (macro)\n"
+        "  F1         : %.4f   (macro)\n"
+        "  AUC-ROC    : %.4f",
+        model_name, set_name,
+        metrics["accuracy"], metrics["precision"], metrics["recall"],
+        metrics["f1"], metrics["auc_roc"],
+    )
 
 
 def plot_confusion_matrix(
@@ -153,21 +161,21 @@ def plot_roc_comparison(results: list, y_val: np.ndarray, save_dir: Path) -> str
     return path
 
 
-def print_summary_table(results: list) -> None:
+def log_summary_table(results: list) -> None:
     """
-    Imprime una tabla comparativa de los modelos en consola.
+    Registra una tabla comparativa (train/val) de los modelos.
     """
-    print("\n" + "=" * 82)
-    print(
-        f"{'Modelo':<25}"
+    lines = [
+        "=" * 82,
+        f"{'Model':<25}"
         f"{'Acc(tr)':>10}{'Acc(val)':>10}{'Prec(val)':>11}"
-        f"{'Rec(val)':>10}{'F1(val)':>9}{'AUC(val)':>10}"
-    )
-    print("-" * 82)
+        f"{'Rec(val)':>10}{'F1(val)':>9}{'AUC(val)':>10}",
+        "-" * 82,
+    ]
     for r in results:
         m_tr = r["metrics_train"]
         m_va = r["metrics_val"]
-        print(
+        lines.append(
             f"{r['model_name']:<25}"
             f"{m_tr['accuracy']:>10.4f}"
             f"{m_va['accuracy']:>10.4f}"
@@ -176,7 +184,8 @@ def print_summary_table(results: list) -> None:
             f"{m_va['f1']:>9.4f}"
             f"{m_va['auc_roc']:>10.4f}"
         )
-    print("=" * 82 + "\n")
+    lines.append("=" * 82)
+    logger.info("Validation summary:\n%s", "\n".join(lines))
 
 
 def _safe(name: str) -> str:

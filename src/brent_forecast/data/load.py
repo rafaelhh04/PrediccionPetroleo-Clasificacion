@@ -1,8 +1,11 @@
 
+import logging
 from pathlib import Path
 
 import pandas as pd
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def load_oil_data(oil_path: Path, events_path: Path) -> pd.DataFrame:
@@ -33,7 +36,7 @@ def load_oil_prices(path: Path) -> pd.DataFrame:
     
     #Validacion por si no se encuentra la columna 'date' en el dataset
     if 'date' not in df.columns:
-        raise ValueError("La columna 'date' no se encuentra en el dataset.")
+        raise ValueError(f"Column 'date' not found in {path.name}.")
     
     #Convertir la columna 'date' a formato datetime
     df['date'] = pd.to_datetime(df['date'], errors='coerce')
@@ -43,9 +46,12 @@ def load_oil_prices(path: Path) -> pd.DataFrame:
         # Contar cuántas filas tienen fechas no parseables antes de eliminarlas
         n_bad = df['date'].isna().sum()
         df = df.dropna(subset=['date'])
-        print(f"{n_bad} filas con 'date' no parseable en dataset principal. Se eliminan.")
+        logger.warning("Dropping %d rows with an unparseable 'date' in %s", n_bad, path.name)
         
-    print(f"{path.name} Cargada {len(df)} filas | {df['date'].min().date()} → {df['date'].max().date()}")
+    logger.info(
+        "Loaded %s: %d rows | %s -> %s",
+        path.name, len(df), df['date'].min().date(), df['date'].max().date(),
+    )
         
     return df
 
@@ -57,7 +63,7 @@ def load_geopolitical_events(path: Path) -> pd.DataFrame:
     
     #Validacion por si no se encuentra la columna 'date' en el dataset
     if 'date' not in df.columns:
-        raise ValueError("La columna 'date' no se encuentra en el dataset.")
+        raise ValueError(f"Column 'date' not found in {path.name}.")
     
     #Convertir la columna 'date' a formato datetime
     df['date'] = pd.to_datetime(df['date'], errors='coerce')
@@ -72,7 +78,7 @@ def load_geopolitical_events(path: Path) -> pd.DataFrame:
     if rename_map:
         df = df.rename(columns=rename_map)
         
-    print(f"[{path.name}] Cargado {len(df)} eventos | columnas: {df.columns.tolist()}")
+    logger.info("Loaded %s: %d events | columns: %s", path.name, len(df), df.columns.tolist())
     return df
 
 def _inspect_overlap(df_oil: pd.DataFrame, df_geo: pd.DataFrame) -> None:
@@ -83,11 +89,11 @@ def _inspect_overlap(df_oil: pd.DataFrame, df_geo: pd.DataFrame) -> None:
     
     if 'event_flag' in df_oil.columns:
         n_flagged = df_oil['event_flag'].astype(bool).sum()
-        print(f"  Días con event_flag=1 en dataset petróleo: {n_flagged}")
+        logger.info("Days with event_flag=1 in the oil dataset: %d", n_flagged)
         
     if 'event_type' in df_oil.columns:
         vc = df_oil['event_type'].value_counts()
-        print(f"  Distribución event_type en dataset petróleo (top-5):\n{vc.head()}")
+        logger.info("event_type distribution in the oil dataset (top 5):\n%s", vc.head())
         
 def _fill_no_event(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -126,7 +132,7 @@ def _resolve_overlap(df: pd.DataFrame) -> pd.DataFrame:
             df = df.rename(columns={'event_description': 'oil_event_description'})  # ← añadir
         df = df.rename(columns={'geo_event_description': 'event_description'})
 
-    print(f"\n[_resolve_overlap] Columnas tras resolución: {df.columns.tolist()}")
+    logger.info("Columns after resolving the overlap: %s", df.columns.tolist())
     return df
 def _validate(df: pd.DataFrame, expected_rows: int) -> None:
     """
@@ -143,43 +149,40 @@ def _validate(df: pd.DataFrame, expected_rows: int) -> None:
     # 1. Duplicados en date
     n_dup = df['date'].duplicated().sum()
     if n_dup > 0:
-        errors.append(f"DUPLICADOS en 'date': {n_dup} filas duplicadas.")
+        errors.append(f"DUPLICATES in 'date': {n_dup} duplicated rows.")
 
     # 2. Número de filas
     if len(df) != expected_rows:
         errors.append(
-            f"FILAS: esperadas {expected_rows}, obtenidas {len(df)}. "
-            "El left join añadió o perdió filas (posible duplicado en dataset geopolítico)."
+            f"ROWS: expected {expected_rows}, got {len(df)}. "
+            "The left join added or lost rows (possible duplicate in the events dataset)."
         )
 
     # 3. Nulos en event_severity
     if 'event_severity' in df.columns:
         n_null_sev = df['event_severity'].isna().sum()
         if n_null_sev > 0:
-            errors.append(f"NULOS en 'event_severity': {n_null_sev} valores nulos sin rellenar.")
+            errors.append(f"NULLS in 'event_severity': {n_null_sev} unfilled values.")
 
     # 4. Nulos en event_type
     if 'event_type' in df.columns:
         n_null_type = df['event_type'].isna().sum()
         if n_null_type > 0:
-            errors.append(f"NULOS en 'event_type': {n_null_type} valores nulos sin rellenar.")
+            errors.append(f"NULLS in 'event_type': {n_null_type} unfilled values.")
 
     # 5. Rango de fechas
     min_date = df['date'].min()
     max_date = df['date'].max()
     if min_date.year < 2009 or min_date.year > 2011:
-        errors.append(f"RANGO DE FECHAS: fecha mínima inesperada ({min_date.date()}).")
+        errors.append(f"DATE RANGE: unexpected minimum date ({min_date.date()}).")
     if max_date.year < 2025:
-        errors.append(f"RANGO DE FECHAS: fecha máxima inesperada ({max_date.date()}).")
+        errors.append(f"DATE RANGE: unexpected maximum date ({max_date.date()}).")
 
-    print("\n[_validate] Resultados de validación:")
     if errors:
         for e in errors:
-            print(f"  ✗ {e}")
-        raise ValueError(f"Validación fallida con {len(errors)} error(es). Revisa los mensajes anteriores.")
-    else:
-        print("  ✓ Sin duplicados en 'date'")
-        print(f"  ✓ Filas correctas: {len(df)} == {expected_rows}")
-        print("  ✓ event_severity sin nulos")
-        print("  ✓ event_type sin nulos")
-        print(f"  ✓ Rango de fechas válido: {min_date.date()} → {max_date.date()}")
+            logger.error("Validation failed: %s", e)
+        raise ValueError(f"Validation failed with {len(errors)} error(s); see the log above.")
+    logger.info("Validation passed: no duplicated dates")
+    logger.info("Validation passed: row count %d == %d", len(df), expected_rows)
+    logger.info("Validation passed: no nulls in event_severity / event_type")
+    logger.info("Validation passed: date range %s -> %s", min_date.date(), max_date.date())

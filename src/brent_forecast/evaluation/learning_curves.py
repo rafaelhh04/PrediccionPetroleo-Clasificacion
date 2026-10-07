@@ -8,6 +8,7 @@ cada fold (no es sklearn-compatible).
 Todas las curvas se guardan en results/plots/learning_curve_<modelo>.png.
 """
 
+import logging
 import os
 from pathlib import Path
 from typing import Sequence
@@ -19,6 +20,8 @@ import matplotlib.pyplot as plt
 
 from sklearn.model_selection import learning_curve
 from sklearn.model_selection import TimeSeriesSplit
+
+logger = logging.getLogger(__name__)
 
 
 def plot_learning_curve_sklearn(
@@ -37,7 +40,7 @@ def plot_learning_curve_sklearn(
 
     Devuelve la ruta del PNG generado.
     """
-    print(f"[learning_curve] Calculando curva para {model_name}...")
+    logger.info("Computing learning curve for %s", model_name)
     sizes, train_scores, val_scores = learning_curve(
         estimator, X_train, y_train,
         train_sizes=np.asarray(train_sizes),
@@ -68,7 +71,7 @@ def plot_learning_curve_mlp(
     from sklearn.metrics import roc_auc_score
     from brent_forecast.models.neural_network import TRAIN_KWARGS, train_mlp, predict_proba
 
-    print(f"[learning_curve] Calculando curva manual para {model_name}...")
+    logger.info("Computing manual learning curve for %s", model_name)
     sizes_rel = np.asarray(train_sizes)
     train_scores = []
     val_scores   = []
@@ -91,8 +94,10 @@ def plot_learning_curve_mlp(
 
         train_scores.append(size_train)
         val_scores.append(size_val)
-        print(f"[learning_curve]   frac={frac:.2f} → AUC train {np.mean(size_train):.4f} | "
-              f"AUC CV {np.mean(size_val):.4f}")
+        logger.info(
+            "  frac=%.2f -> train AUC %.4f | CV AUC %.4f",
+            frac, np.mean(size_train), np.mean(size_val),
+        )
 
     sizes_abs = (sizes_rel * len(X_train)).astype(int)
     return _save_learning_curve_plot(

@@ -43,7 +43,7 @@ class PathsSettings(_Section):
     @property
     def log_file(self) -> Path:
         """Log file of the last training run."""
-        return self.results_dir / "run_log.txt"
+        return self.results_dir / "run.log"
 
     @property
     def metrics_file(self) -> Path:

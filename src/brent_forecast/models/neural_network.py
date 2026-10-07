@@ -17,6 +17,7 @@ Notas matemáticas clave (ver CLAUDE_CODE_PLAN_FASE4.md):
 - BCE con clipping a [1e-15, 1-1e-15] para evitar log(0).
 """
 
+import logging
 import os
 from itertools import product
 from pathlib import Path
@@ -26,13 +27,15 @@ import numpy as np
 
 from brent_forecast.evaluation.metrics import (
     compute_metrics,
-    print_full_metrics,
+    log_full_metrics,
     plot_confusion_matrix,
     plot_roc_curve,
 )
 from brent_forecast.config import ModelSettings
-from brent_forecast.models.tuning import print_grid_results
+from brent_forecast.models.tuning import log_grid_results
 
+
+logger = logging.getLogger(__name__)
 
 MODEL_NAME = "MLP NumPy"
 
@@ -265,16 +268,21 @@ def train_mlp(
         if verbose:
             flag = " ★" if improved else ""
             if epoch == 1 or epoch % 5 == 0 or improved:
-                print(f"[MLP] epoch {epoch:>3} | train_loss {train_loss:.4f} | "
-                      f"val_loss {val_loss:.4f} | val_auc {val_auc:.4f}{flag}")
+                logger.info(
+                    "[MLP] epoch %3d | train_loss %.4f | val_loss %.4f | val_auc %.4f%s",
+                    epoch, train_loss, val_loss, val_auc, flag,
+                )
 
         if epochs_no_improve >= patience:
             if verbose:
-                print(f"[MLP] Early stopping en epoch {epoch} (sin mejora durante {patience} epochs).")
+                logger.info(
+                    "[MLP] Early stopping at epoch %d (no improvement for %d epochs)",
+                    epoch, patience,
+                )
             break
 
     if verbose:
-        print(f"[MLP] Mejor AUC val: {best_auc:.4f} (epoch {best_epoch})")
+        logger.info("[MLP] Best val AUC: %.4f (epoch %d)", best_auc, best_epoch)
     return best_params, history
 
 
@@ -333,8 +341,10 @@ def tune_hyperparameters(
     learning_rates = config.grid["learning_rate"]
     results = []
 
-    print(f"\n[{MODEL_NAME}] Tuning manual: {len(hidden_pairs) * len(learning_rates)} "
-          f"combos × {cv.get_n_splits()} folds...")
+    logger.info(
+        "[%s] Manual tuning: %d combos x %d folds",
+        MODEL_NAME, len(hidden_pairs) * len(learning_rates), cv.get_n_splits(),
+    )
 
     for (h1, h2), lr in product(hidden_pairs, learning_rates):
         fold_aucs = []
@@ -358,10 +368,12 @@ def tune_hyperparameters(
             "mean_cv_auc": mean_auc,
             "std_cv_auc":  std_auc,
         })
-        print(f"[{MODEL_NAME}]   (H1={h1}, H2={h2}, lr={lr}) → "
-              f"AUC CV = {mean_auc:.4f} ± {std_auc:.4f}")
+        logger.info(
+            "[%s]   (H1=%s, H2=%s, lr=%s) -> CV AUC = %.4f ± %.4f",
+            MODEL_NAME, h1, h2, lr, mean_auc, std_auc,
+        )
 
-    print_grid_results(MODEL_NAME, results, top_k=5)
+    log_grid_results(MODEL_NAME, results, top_k=5)
     best = max(results, key=lambda r: r["mean_cv_auc"])
     return {**default_params, **best["params"]}
 
@@ -382,7 +394,7 @@ def train_and_evaluate(
     """
     Cumple el contrato común de Fase 3.
     """
-    print(f"\n[{MODEL_NAME}] Entrenando con params: {params}...")
+    logger.info("[%s] Training with params: %s", MODEL_NAME, params)
 
     # Filtrar solo los kwargs aceptados por train_mlp
     train_kwargs = {k: v for k, v in params.items() if k in TRAIN_KWARGS}
@@ -396,10 +408,12 @@ def train_and_evaluate(
     metrics_train = compute_metrics(y_train, y_pred_train, y_proba_train)
     metrics_val   = compute_metrics(y_val,   y_pred_val,   y_proba_val)
 
-    print_full_metrics(metrics_train, "Train", MODEL_NAME)
-    print_full_metrics(metrics_val,   "Val",   MODEL_NAME)
-    print(f"[{MODEL_NAME}] Epochs entrenados: {len(history)} | "
-          f"Mejor AUC val: {max(h['val_auc'] for h in history):.4f}")
+    log_full_metrics(metrics_train, "Train", MODEL_NAME)
+    log_full_metrics(metrics_val,   "Val",   MODEL_NAME)
+    logger.info(
+        "[%s] Epochs trained: %d | best val AUC: %.4f",
+        MODEL_NAME, len(history), max(h["val_auc"] for h in history),
+    )
 
     plot_confusion_matrix(y_val, y_pred_val, MODEL_NAME, plots_dir)
     plot_roc_curve(y_val, y_proba_val, MODEL_NAME, plots_dir)
