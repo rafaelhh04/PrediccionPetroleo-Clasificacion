@@ -2,6 +2,9 @@
 
 > Dirección del precio del Brent al día siguiente a partir de indicadores de mercado y eventos geopolíticos (2010–2026).
 
+[![CI](https://github.com/rafaelhh04/PrediccionPetroleo-Clasificacion/actions/workflows/ci.yml/badge.svg)](https://github.com/rafaelhh04/PrediccionPetroleo-Clasificacion/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/rafaelhh04/PrediccionPetroleo-Clasificacion/branch/main/graph/badge.svg)](https://codecov.io/gh/rafaelhh04/PrediccionPetroleo-Clasificacion)
+
 *English version: [README.md](README.md).*
 
 Clasificación binaria de si el Brent cerrará al alza mañana, comparando cuatro modelos — regresión
