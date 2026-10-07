@@ -9,7 +9,7 @@ __pycache__/
 .Python
 
 # ─────────────────────────────────────────────
-# Entornos virtuales
+# Virtual environments
 # ─────────────────────────────────────────────
 .env
 .venv
@@ -20,22 +20,23 @@ env.bak/
 venv.bak/
 
 # ─────────────────────────────────────────────
-# Jupyter Notebooks (PROHIBIDOS en el proyecto)
+# Jupyter notebooks (not used in this project)
 # ─────────────────────────────────────────────
 *.ipynb
 .ipynb_checkpoints/
 
 # ─────────────────────────────────────────────
-# Datos — los CSVs NO se suben al repositorio
-# (son pesados y están en data/ localmente)
+# Data — raw CSVs are never committed
+# (downloaded with `brent data download`)
 # ─────────────────────────────────────────────
+data/raw/
 data/*.csv
 data/*.xlsx
 data/*.parquet
 data/*.json
 
 # ─────────────────────────────────────────────
-# Modelos entrenados y checkpoints
+# Trained models and checkpoints
 # ─────────────────────────────────────────────
 *.pkl
 *.pickle
@@ -47,29 +48,35 @@ data/*.json
 *.npz
 
 # ─────────────────────────────────────────────
-# Resultados y gráficas generadas
-# (se regeneran ejecutando main.py)
+# Experiment tracking
 # ─────────────────────────────────────────────
-results/plots/*.png
-results/plots/*.jpg
-results/plots/*.pdf
-results/plots/*.svg
+mlruns/
 
 # ─────────────────────────────────────────────
-# VS Code
+# Tooling caches
+# ─────────────────────────────────────────────
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ─────────────────────────────────────────────
+# IDEs
 # ─────────────────────────────────────────────
 .vscode/
+.idea/
 *.code-workspace
 
 # ─────────────────────────────────────────────
-# Sistema operativo
+# Operating system
 # ─────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 desktop.ini
 
 # ─────────────────────────────────────────────
-# Logs y temporales
+# Logs and temporary files
 # ─────────────────────────────────────────────
 *.log
 *.tmp
@@ -78,11 +85,13 @@ desktop.ini
 *.swp
 
 # ─────────────────────────────────────────────
-# Distribución / build
+# Distribution / build
 # ─────────────────────────────────────────────
 dist/
 build/
 *.egg-info/
 
-/*.md
-/docs
+# ─────────────────────────────────────────────
+# Generated results (re-created on every training run)
+# ─────────────────────────────────────────────
+results/
