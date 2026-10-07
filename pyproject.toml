@@ -12,6 +12,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
+    "kagglehub>=1.0",
     "matplotlib>=3.10",
     "numpy>=2.2",
     "pandas>=2.2",
@@ -35,3 +36,7 @@ dev = [
 [build-system]
 requires = ["uv_build>=0.11,<0.12"]
 build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
