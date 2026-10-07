@@ -1,200 +1,190 @@
-# Predicción del Precio del Brent — Clasificación Binaria
+# Brent Direction Classifier
 
-> Proyecto de Aprendizaje Automático | Curso 2025-26
+> Next-day direction of the Brent crude oil price from market indicators and geopolitical events (2010–2026).
 
-Predicción de la **dirección del precio del petróleo Brent al día siguiente** mediante técnicas de clasificación supervisada, combinando indicadores de mercado con eventos geopolíticos globales (2010–2026).
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/)
+[![uv](https://img.shields.io/badge/deps-uv-261230.svg)](https://docs.astral.sh/uv/)
+[![Ruff](https://img.shields.io/badge/lint-ruff-d7ff64.svg)](https://docs.astral.sh/ruff/)
+[![mypy strict](https://img.shields.io/badge/types-mypy%20strict-2a6db2.svg)](https://mypy.readthedocs.io/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
----
+*Versión en español: [README.es.md](README.es.md).*
 
-## Descripción del Problema
+Binary classification of whether Brent will close higher tomorrow, comparing four models — logistic
+regression, RBF SVM, random forest and a **multilayer perceptron written from scratch in NumPy**
+(backpropagation, inverted dropout, He initialisation, early stopping) — under a strict, leakage-aware
+chronological evaluation.
 
-El objetivo es predecir si el precio del Brent **subirá o bajará** el día siguiente:
-
-| Clase | Condición | Significado |
-|-------|-----------|-------------|
-| `1` | `brent_return(t+1) > 0` | El precio sube |
-| `0` | `brent_return(t+1) ≤ 0` | El precio baja o se mantiene |
-
-El periodo cubierto (2010–2026) incluye eventos de alta relevancia como la pandemia de COVID-19 (2020), la guerra de Ucrania (2022) o la crisis del Mar Rojo (2024), aportando gran variabilidad al dataset.
-
----
-
-##  Estructura del Proyecto
-
-```
-PROYECTOML/
-│
-├── main.py                        # ← Punto de entrada. Reproduce todos los resultados
-│
-├── data/
-│   ├── load_data.py               # Carga y merge de los dos datasets
-│   ├── dataset_pretoleo_1.csv     # ~4.000 registros diarios (2010–2026)
-│   └── geopolitical_events_timeline_1.csv  # 35 eventos geopolíticos
-│
-├── models/
-│   ├── logistic_regression.py     # Modelo baseline (sklearn)
-│   ├── neural_network.py          # MLP implementado con NumPy puro
-│   ├── svm_model.py               # SVM con kernel RBF (sklearn)
-│   └── random_forest.py           # Random Forest (sklearn)
-│
-├── utils/
-│   ├── preprocessing.py           # Limpieza, features, label, split temporal
-│   └── evaluation.py              # Métricas, matrices de confusión, curvas ROC
-│
-├── results/
-│   ├── final_results.csv          # Tabla comparativa de métricas
-│   └── plots/                     # Todas las gráficas generadas
-│
-├── environment.yml                # Entorno conda reproducible
-└── memoria.pdf                    # Memoria del proyecto
-```
+| Class | Condition | Meaning |
+|-------|-----------|---------|
+| `1` | `brent_return(t+1) > 0` | Price goes up |
+| `0` | `brent_return(t+1) ≤ 0` | Price goes down or stays flat |
 
 ---
 
-##  Datasets
+## Quickstart
 
-### Dataset 1 — Oil Prices & Market Indicators
-- **Fuente**: [Kaggle — Global Oil Prices and Geopolitical Events](https://www.kaggle.com/datasets/kavyadhyani/global-oil-prices-andgeopolitical-events)
-- **Periodo**: Febrero 2010 – Marzo 2026 (datos diarios)
-- **Registros**: ~4.000 filas · 23 columnas
+Requires [uv](https://docs.astral.sh/uv/getting-started/installation/) (it installs Python 3.12 if needed).
 
-| Grupo | Features |
-|-------|----------|
-| Precios | `brent_price`, `wti_price` |
-| Retornos | `brent_return`, `wti_return` |
-| Lags | `brent_lag_1/3/7`, `wti_lag_1/3/7` |
-| Volatilidad | `brent_volatility_7d/30d`, `wti_volatility_7d/30d` |
-| Macro | `dxy_index`, `vix`, `gpr_index`, `brent_wti_spread` |
-
-### Dataset 2 — Geopolitical Events (2010–2026)
-- **Registros**: 35 eventos documentados · 4 columnas
-- **Columnas**: `date`, `event_type`, `event_description`, `event_severity` (escala 1–10)
-- **Categorías**: `war`, `sanctions`, `opec`, `conflict`, `disaster`, `blockade`, `oil_price_war`, `market_crash`
-
-Los dos datasets se integran mediante **left join** sobre `date`. Los días sin evento registrado reciben `event_type = 'none'` y `event_severity = 0`.
-
----
-
-##  Modelos Implementados
-
-| Modelo | Implementación | Rol |
-|--------|---------------|-----|
-| Regresión Logística | scikit-learn | Baseline interpretable |
-| **Red Neuronal MLP** | **NumPy puro** ⭐ | Obligatoria por requisitos |
-| SVM (kernel RBF) | scikit-learn | Frontera de decisión no lineal |
-| Random Forest | scikit-learn | Importancia de features |
-
-### Arquitectura de la Red Neuronal (NumPy)
-```
-Input  →  [64 neuronas + ReLU + Dropout]  →  [32 neuronas + ReLU + Dropout]  →  Sigmoid
-```
-Implementa desde cero: forward pass, backpropagation, mini-batch gradient descent, dropout e inicialización He.
-
----
-
-##  Instalación y Ejecución
-
-### 1. Clonar el repositorio
 ```bash
-git clone <url-del-repo>
-cd PROYECTOML
+git clone https://github.com/rafaelhh04/PrediccionPetroleo-Clasificacion.git
+cd PrediccionPetroleo-Clasificacion
+
+uv sync                      # create .venv from uv.lock
+uv run brent data download   # fetch the Kaggle dataset into data/raw/ (needs Kaggle credentials)
+uv run brent train           # full pipeline: preprocess, tune, train, evaluate (~1-2 min)
 ```
 
-### Descarga de datos
+Outputs are written to `results/` (ignored by git):
 
-Los CSV no se versionan. `brent data download` los descarga de Kaggle con
-`kagglehub`, los copia a `data/raw/` con los nombres canónicos
-(`oil_geopolitics_dataset_2010_2026.csv`, `geopolitical_events_timeline.csv`)
-y verifica sus SHA-256 contra `configs/data_checksums.json`.
+| Path | Content |
+|------|---------|
+| `results/metrics.json` | Train / validation / test metrics of every model |
+| `results/run.log` | Full log of the run |
+| `results/plots/` | ROC curves, confusion matrices, learning curves, MLP training curves |
 
-Credenciales: exporta `KAGGLE_USERNAME` y `KAGGLE_KEY` (o usa `~/.kaggle/kaggle.json`).
+### Data
 
-**Descarga manual** (sin credenciales): descarga el ZIP desde
-[Kaggle](https://www.kaggle.com/datasets/kavyadhyani/global-oil-prices-andgeopolitical-events),
-descomprímelo, copia los dos CSV a `data/raw/` con los nombres canónicos y ejecuta
-`brent data verify`. Si `configs/data_checksums.json` aún no tiene los hashes
-(valores `null`), la primera verificación los registra: haz commit del fichero.
+The CSVs are not versioned. `brent data download` downloads
+[kavyadhyani/global-oil-prices-andgeopolitical-events](https://www.kaggle.com/datasets/kavyadhyani/global-oil-prices-andgeopolitical-events)
+with `kagglehub`, identifies each file by its header, copies it to `data/raw/` under its canonical name and
+verifies its SHA-256 against `configs/data_checksums.json`.
 
-### 2. Crear el entorno conda
+| Canonical file | Content |
+|----------------|---------|
+| `oil_geopolitics_dataset_2010_2026.csv` | ~4,000 daily rows × 23 columns: prices, returns, lags, volatilities, DXY, VIX, GPR, spread, event flags |
+| `geopolitical_events_timeline.csv` | 35 events: `date`, `event_type`, `event_description`, `event_severity` (1–10) |
+
+**Credentials:** export `KAGGLE_USERNAME` and `KAGGLE_KEY` (from *Kaggle → Settings → API → Create New Token*)
+or place `kaggle.json` in `~/.kaggle/`.
+
+**Manual download:** download the ZIP from the Kaggle page, copy both CSVs to `data/raw/` with the canonical
+names above and run `uv run brent data verify`.
+
+**Checksums:** a digest stored as `null` is recorded on first use (trust on first use) and written back to
+`configs/data_checksums.json` — commit that file. `brent data download --update-checksums` refreshes them
+when the upstream dataset legitimately changes; any other mismatch aborts and removes the copied files.
+
+---
+
+## CLI
+
+```text
+brent [--config PATH] [--log-level LEVEL] COMMAND
+
+  train            Run the full pipeline: load, preprocess, tune, train and evaluate on test
+  data download    Download the Kaggle dataset and verify checksums  [--force] [--update-checksums]
+  data verify      Verify the SHA-256 checksums of the local data files
+  config show      Print the resolved configuration as JSON
+```
+
+`python -m brent_forecast` is equivalent to `brent`.
+
+## Configuration
+
+All tunable values — paths, seed, split dates, CV folds, VIF and winsorisation thresholds, fixed
+hyperparameters and search grids — live in [`configs/default.yaml`](configs/default.yaml) and are validated
+with pydantic-settings. Any field can be overridden with a `BRENT_`-prefixed environment variable, using
+`__` for nesting:
+
 ```bash
-conda env create -f environment.yml
-conda activate proyectoml
+BRENT_SEED=7 BRENT_SPLIT__TRAIN_END=2021-01-01 uv run brent train
+BRENT_MODELS__RANDOM_FOREST__GRID='{"max_depth": [5, 10]}' uv run brent config show
+uv run brent --config configs/my_experiment.yaml train
 ```
 
-### 3. Ejecutar el proyecto completo
+Precedence: explicit arguments > environment variables > YAML file.
+
+---
+
+## Methodology
+
+```text
+load + left-join events ─► label (t+1) ─► feature engineering ─► drop nulls ─► VIF filter (train only)
+   ─► chronological split ─► winsorise 1–99 % (train percentiles) ─► StandardScaler (fit on train)
+   ─► grid search with TimeSeriesSplit(5) on train ─► fit ─► validation ─► single pass on test
+```
+
+- **Chronological split:** train `< 2022-01-01`, validation `2022–2023`, test `≥ 2024-01-01`.
+- **Leakage controls:** same-day `wti_return` removed; VIF selection, winsorisation percentiles and scaler are
+  fitted on training rows only; tuning uses expanding-window `TimeSeriesSplit` on train only; the test set is
+  evaluated exactly once.
+- **Features:** log returns over 1/3/7 days, 30-day volatility and 7/30 volatility ratio, Brent–WTI spread,
+  21-day change of the geopolitical risk index, high-severity event flag, day of week and month
+  (10 features survive the VIF > 10 filter).
+- **Metrics:** accuracy, macro precision / recall / F1 and ROC AUC (primary, used for model selection).
+
+### Models
+
+| Model | Implementation | Search space |
+|-------|----------------|--------------|
+| Logistic regression (L2) | scikit-learn | `C` |
+| SVM, RBF kernel | scikit-learn | `C`, `gamma` |
+| Random forest | scikit-learn | `n_estimators`, `max_depth`, `min_samples_leaf` |
+| **MLP 64 → 32 → 1** | **pure NumPy** | hidden sizes, learning rate |
+
+---
+
+## Results
+
+Reference run on the Kaggle data (ROC AUC):
+
+| Model | Train | Validation | Test |
+|-------|------:|-----------:|-----:|
+| Logistic Regression | 0.5507 | 0.4800 | 0.4858 |
+| SVM (RBF) | 0.5646 | 0.4700 | 0.4909 |
+| Random Forest | 0.7342 | 0.4936 | 0.4927 |
+| MLP NumPy | 0.5717 | 0.4933 | 0.5002 |
+
+No model beats a coin flip out of sample — consistent with the weak-form efficient-market hypothesis for
+daily returns. Proving this rigorously (baselines, confidence intervals, statistical tests, economic
+backtest) is the goal of the next phase of the [roadmap](docs/ROADMAP.md).
+
+---
+
+## Project structure
+
+```text
+├── configs/
+│   ├── default.yaml            # single source of configuration values
+│   └── data_checksums.json     # SHA-256 of the raw CSVs
+├── docs/ROADMAP.md             # professionalisation plan and progress log
+├── src/brent_forecast/
+│   ├── cli.py                  # Typer CLI (`brent`)
+│   ├── config.py               # typed settings (pydantic-settings)
+│   ├── logging_config.py       # console + per-run file logging
+│   ├── pipeline.py             # end-to-end training orchestration
+│   ├── data/                   # Kaggle download + checksums, loading and merge
+│   ├── features/               # label, feature engineering, VIF, split, winsorisation, scaling
+│   ├── models/                 # LogReg, SVM, RF, NumPy MLP, shared tuning helpers
+│   └── evaluation/             # metrics, plots, learning curves, final test evaluation
+├── tests/
+├── Makefile
+└── pyproject.toml / uv.lock
+```
+
+## Development
+
 ```bash
-python main.py
+make install     # uv sync --frozen + pre-commit install
+make lint        # all pre-commit hooks: ruff, codespell, mypy --strict, file hygiene
+make test        # pytest
+make help        # every target
 ```
 
-Una sola ejecución reproduce todos los resultados: carga de datos, EDA, preprocesado, entrenamiento de los 4 modelos, búsqueda de hiperparámetros, evaluación final y generación de gráficas.
+Conventions: [Conventional Commits](https://www.conventionalcommits.org/), one branch per feature, English
+for code, docstrings (numpy style), logs and commits. Random seed `42` everywhere (`seed` in the config).
 
----
+## Known limitations
 
-## Metodología
+- `create_label` keeps the last row with label `0` (its next-day return is unknown) instead of dropping it;
+  the fix changes the metrics and is scheduled with the ML-rigour phase.
+- A single fixed train/validation/test split; walk-forward validation is planned.
 
-### División temporal de datos
-Se respeta estrictamente el orden cronológico para evitar data leakage:
+## Author
 
-```
-2010 ─────────────── 2021 │ 2022 ──── 2023 │ 2024 ──── 2026
-        TRAIN (75%)        │  VAL (15%) │   TEST (10%)
-```
+Rafael Hernando Herias — originally an individual Machine Learning course project (2025-26).
 
-### Validación cruzada
-`TimeSeriesSplit` con 5 folds preservando el orden temporal.
+## License
 
-### Búsqueda de hiperparámetros
-- `GridSearchCV` para Regresión Logística
-- `RandomizedSearchCV` para SVM y Random Forest
-- Búsqueda manual en bucle para la Red Neuronal NumPy
-
-### Métricas de evaluación
-`Accuracy` · `F1-Score` · `AUC-ROC` · `Matriz de confusión`
-
----
-
-##  Resultados
-
-Los resultados completos se encuentran en `results/final_results.csv` tras ejecutar `main.py`.
-
-Las gráficas generadas incluyen:
-
-```
-results/plots/
-├── eda_label_distribution.png       # Distribución de clases
-├── eda_price_history.png            # Evolución temporal Brent/WTI
-├── eda_correlation_matrix.png       # Heatmap de correlaciones
-├── roc_curve_all_models.png         # Curvas ROC comparativas
-├── confusion_matrix_[modelo].png    # Matrices de confusión
-├── learning_curve_[modelo].png      # Curvas de entrenamiento
-└── feature_importance_rf.png        # Importancia de features (RF)
-```
-
----
-
-##  Restricciones Técnicas
-
-- ✅ Red neuronal implementada **exclusivamente con NumPy**
-- ✅ Todo el código en archivos `.py` — sin Jupyter Notebooks
-- ✅ `main.py` reproduce todos los resultados con una sola ejecución
-- ✅ División de datos respetando orden cronológico estricto
-- ✅ `random_state=42` en todas las operaciones aleatorias
-
----
-
-##  Dependencias
-
-```
-Python  3.11
-numpy
-pandas
-scikit-learn
-matplotlib
-seaborn
-```
-
----
-
-##  Autor
-Rafael Hernando Herias
-Proyecto individual — Asignatura de Aprendizaje Automático | Curso 2025-26
+[MIT](LICENSE)

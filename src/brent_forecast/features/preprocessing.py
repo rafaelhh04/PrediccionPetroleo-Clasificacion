@@ -135,7 +135,7 @@ def engineer_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     # - brent_price / wti_price: non-stationary price levels; the predictive
     #   signal is kept through lag_ret_n (stationary log returns)
     # - event_*: textual geopolitical columns, captured by the binary flags
-    # - oil_event_*: leftovers of the rename in load_data
+    # - oil_event_*: leftovers of the rename in data.load
     # - event_flag: implied by event_flag_binary; avoids duplicated signal
     exclude = {
         "date",
