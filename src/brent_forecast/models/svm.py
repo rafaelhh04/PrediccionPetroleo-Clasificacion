@@ -10,7 +10,8 @@ Durante la búsqueda se usa probability=False para acelerar (~2× speedup);
 el modelo final se entrena con probability=True para reportar AUC val.
 """
 
-from typing import Any, Dict, Optional
+from pathlib import Path
+from typing import Any, Dict
 
 import numpy as np
 from sklearn.svm import SVC
@@ -22,29 +23,19 @@ from brent_forecast.evaluation.metrics import (
     plot_confusion_matrix,
     plot_roc_curve,
 )
-from brent_forecast.models.tuning import make_time_series_cv, print_grid_results, SCORING
+from brent_forecast.config import ModelSettings
+from brent_forecast.models.tuning import print_grid_results
 
 MODEL_NAME = "SVM (RBF)"
-
-
-DEFAULT_PARAMS: Dict[str, Any] = {
-    "kernel":       "rbf",
-    "C":            1.0,
-    "gamma":        "scale",
-    "probability":  True,
-    "random_state": 42,
-}
-
-GRID: Dict[str, list] = {
-    "C":     [0.1, 1.0, 10.0],
-    "gamma": ["scale", 0.01, 0.1],
-}
 
 
 def tune_hyperparameters(
     X_train: np.ndarray,
     y_train: np.ndarray,
-    cv=None,
+    cv,
+    config: ModelSettings,
+    scoring: str,
+    seed: int,
 ) -> Dict[str, Any]:
     """
     Grid search con TimeSeriesSplit.
@@ -52,10 +43,10 @@ def tune_hyperparameters(
     decision_function, no necesita predict_proba) → ~2× más rápido.
     El modelo final se entrenará con probability=True.
     """
-    cv = cv or make_time_series_cv()
-    cv_params = {**DEFAULT_PARAMS, "probability": False}
+    default_params = {**config.params, "random_state": seed}
+    cv_params = {**default_params, "probability": False}
     base = SVC(**cv_params)
-    grid = GridSearchCV(base, GRID, cv=cv, scoring=SCORING, n_jobs=-1, refit=False)
+    grid = GridSearchCV(base, config.grid, cv=cv, scoring=scoring, n_jobs=-1, refit=False)
     grid.fit(X_train, y_train)
 
     results = [
@@ -68,7 +59,7 @@ def tune_hyperparameters(
     ]
     print_grid_results(MODEL_NAME, results, top_k=5)
 
-    return {**DEFAULT_PARAMS, **grid.best_params_}
+    return {**default_params, **grid.best_params_}
 
 
 def train_and_evaluate(
@@ -77,15 +68,14 @@ def train_and_evaluate(
     X_val:   np.ndarray,
     y_val:   np.ndarray,
     feature_cols: list,
-    params: Optional[Dict[str, Any]] = None,
+    params: Dict[str, Any],
+    plots_dir: Path,
 ) -> dict:
     """
     Entrena SVM RBF.
 
-    Si `params` is None usa DEFAULT_PARAMS (comportamiento Fase 3).
     Coste: SVM RBF escala O(n²). Con ~3.000 filas tarda segundos.
     """
-    params = params or DEFAULT_PARAMS
     print(f"\n[{MODEL_NAME}] Entrenando con params: {params}...")
 
     model = SVC(**params)
@@ -103,8 +93,8 @@ def train_and_evaluate(
     print_full_metrics(metrics_val,   "Val",   MODEL_NAME)
     print(f"[{MODEL_NAME}] Support vectors: {model.support_.shape[0]} de {X_train.shape[0]}")
 
-    plot_confusion_matrix(y_val, y_pred_val, MODEL_NAME)
-    plot_roc_curve(y_val, y_proba_val, MODEL_NAME)
+    plot_confusion_matrix(y_val, y_pred_val, MODEL_NAME, plots_dir)
+    plot_roc_curve(y_val, y_proba_val, MODEL_NAME, plots_dir)
 
     return {
         "model_name":    MODEL_NAME,

@@ -19,7 +19,8 @@ Notas matemáticas clave (ver CLAUDE_CODE_PLAN_FASE4.md):
 
 import os
 from itertools import product
-from typing import Any, Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 
@@ -29,37 +30,17 @@ from brent_forecast.evaluation.metrics import (
     plot_confusion_matrix,
     plot_roc_curve,
 )
-from brent_forecast.models.tuning import make_time_series_cv, print_grid_results
+from brent_forecast.config import ModelSettings
+from brent_forecast.models.tuning import print_grid_results
 
 
 MODEL_NAME = "MLP NumPy"
 
-# ──────────────────────────────────────────────
-# Hyperparámetros default (sustituidos en Fase 5 por los del tuner)
-# ──────────────────────────────────────────────
-HIDDEN_1      = 64
-HIDDEN_2      = 32
-DROPOUT_P     = 0.2
-LEARNING_RATE = 0.01
-BATCH_SIZE    = 64
-MAX_EPOCHS    = 100
-PATIENCE      = 10
-RANDOM_SEED   = 42
-
-DEFAULT_PARAMS: Dict[str, Any] = {
-    "hidden_1":      HIDDEN_1,
-    "hidden_2":      HIDDEN_2,
-    "dropout_p":     DROPOUT_P,
-    "learning_rate": LEARNING_RATE,
-    "batch_size":    BATCH_SIZE,
-    "max_epochs":    MAX_EPOCHS,
-    "patience":      PATIENCE,
-}
-
-GRID: Dict[str, list] = {
-    "hidden_pair":   [(32, 16), (64, 32), (128, 64)],
-    "learning_rate": [0.005, 0.01, 0.05],
-}
+# Hyperparámetros aceptados por `train_mlp` (los valores vienen de la config).
+TRAIN_KWARGS = frozenset({
+    "hidden_1", "hidden_2", "dropout_p", "learning_rate",
+    "batch_size", "max_epochs", "patience", "random_state",
+})
 
 
 # ──────────────────────────────────────────────
@@ -110,7 +91,7 @@ def forward(
     params: Dict[str, np.ndarray],
     training: bool,
     rng: np.random.RandomState,
-    dropout_p: float = DROPOUT_P,
+    dropout_p: float,
 ) -> Tuple[np.ndarray, Dict[str, np.ndarray]]:
     """
     Si training=True aplica inverted dropout con prob `dropout_p`.
@@ -164,7 +145,7 @@ def backward(
     y_true: np.ndarray,
     cache: Dict[str, np.ndarray],
     params: Dict[str, np.ndarray],
-    dropout_p: float = DROPOUT_P,
+    dropout_p: float,
 ) -> Dict[str, np.ndarray]:
     keep = 1.0 - dropout_p
     m = y_true.shape[0]
@@ -214,23 +195,25 @@ def train_mlp(
     y_train: np.ndarray,
     X_val:   np.ndarray,
     y_val:   np.ndarray,
-    hidden_1:      int   = HIDDEN_1,
-    hidden_2:      int   = HIDDEN_2,
-    dropout_p:     float = DROPOUT_P,
-    learning_rate: float = LEARNING_RATE,
-    batch_size:    int   = BATCH_SIZE,
-    max_epochs:    int   = MAX_EPOCHS,
-    patience:      int   = PATIENCE,
+    *,
+    hidden_1:      int,
+    hidden_2:      int,
+    dropout_p:     float,
+    learning_rate: float,
+    batch_size:    int,
+    max_epochs:    int,
+    patience:      int,
+    random_state:  int,
     verbose:       bool  = True,
 ) -> Tuple[Dict[str, np.ndarray], List[Dict]]:
     """
     Entrena con SGD mini-batch + shuffle por epoch + early stopping sobre val AUC.
-    Acepta hyperparámetros como argumentos (defaults a las constantes del módulo).
+    Todos los hyperparámetros (incluida la semilla) llegan como argumentos.
     `verbose=False` silencia los logs por epoch — útil durante el tuning.
     """
     from sklearn.metrics import roc_auc_score  # uso permitido: solo monitorización
 
-    rng   = np.random.RandomState(RANDOM_SEED)
+    rng   = np.random.RandomState(random_state)
     n_in  = X_train.shape[1]
     n     = X_train.shape[0]
 
@@ -259,7 +242,7 @@ def train_mlp(
             epoch_losses.append(loss)
 
         train_loss = float(np.mean(epoch_losses))
-        val_proba  = predict_proba(X_val, params, dropout_p=dropout_p)
+        val_proba  = predict_proba(X_val, params)
         val_loss   = binary_cross_entropy(y_val, val_proba)
         val_auc    = float(roc_auc_score(y_val, val_proba))
 
@@ -302,11 +285,13 @@ def train_mlp(
 def predict_proba(
     X: np.ndarray,
     params: Dict[str, np.ndarray],
-    dropout_p: float = DROPOUT_P,
 ) -> np.ndarray:
-    """Forward con training=False; devuelve P(y=1) como vector 1D."""
+    """
+    Forward con training=False; devuelve P(y=1) como vector 1D.
+    En inferencia el dropout es la identidad, así que no depende de dropout_p.
+    """
     dummy_rng = np.random.RandomState(0)
-    A3, _ = forward(X, params, training=False, rng=dummy_rng, dropout_p=dropout_p)
+    A3, _ = forward(X, params, training=False, rng=dummy_rng, dropout_p=0.0)
     return A3.ravel()
 
 
@@ -314,9 +299,8 @@ def predict(
     X: np.ndarray,
     params: Dict[str, np.ndarray],
     threshold: float = 0.5,
-    dropout_p: float = DROPOUT_P,
 ) -> np.ndarray:
-    return (predict_proba(X, params, dropout_p=dropout_p) >= threshold).astype(int)
+    return (predict_proba(X, params) >= threshold).astype(int)
 
 
 # ──────────────────────────────────────────────
@@ -326,10 +310,13 @@ def predict(
 def tune_hyperparameters(
     X_train: np.ndarray,
     y_train: np.ndarray,
-    cv=None,
+    cv,
+    config: ModelSettings,
+    scoring: str,
+    seed: int,
 ) -> Dict[str, Any]:
     """
-    Búsqueda manual sobre GRID usando TimeSeriesSplit.
+    Búsqueda manual sobre `config.grid` (hidden_pair × learning_rate) usando TimeSeriesSplit.
     Para cada combinación, entrena en cada fold y computa AUC val medio.
 
     No usa GridSearchCV porque la MLP no es sklearn-compatible; hacer un
@@ -337,13 +324,19 @@ def tune_hyperparameters(
     """
     from sklearn.metrics import roc_auc_score
 
-    cv = cv or make_time_series_cv()
+    if scoring != "roc_auc":
+        raise ValueError(f"{MODEL_NAME} tuning only supports scoring='roc_auc', got {scoring!r}")
+
+    default_params = {**config.params, "random_state": seed}
+    base_kwargs = {k: v for k, v in default_params.items() if k in TRAIN_KWARGS}
+    hidden_pairs = config.grid["hidden_pair"]
+    learning_rates = config.grid["learning_rate"]
     results = []
 
-    print(f"\n[{MODEL_NAME}] Tuning manual: {len(GRID['hidden_pair']) * len(GRID['learning_rate'])} "
+    print(f"\n[{MODEL_NAME}] Tuning manual: {len(hidden_pairs) * len(learning_rates)} "
           f"combos × {cv.get_n_splits()} folds...")
 
-    for (h1, h2), lr in product(GRID["hidden_pair"], GRID["learning_rate"]):
+    for (h1, h2), lr in product(hidden_pairs, learning_rates):
         fold_aucs = []
         for tr_idx, va_idx in cv.split(X_train):
             X_tr_f, y_tr_f = X_train[tr_idx], y_train[tr_idx]
@@ -351,7 +344,7 @@ def tune_hyperparameters(
 
             best_params, _ = train_mlp(
                 X_tr_f, y_tr_f, X_va_f, y_va_f,
-                hidden_1=h1, hidden_2=h2, learning_rate=lr,
+                **{**base_kwargs, "hidden_1": h1, "hidden_2": h2, "learning_rate": lr},
                 verbose=False,
             )
             y_proba = predict_proba(X_va_f, best_params)
@@ -370,7 +363,7 @@ def tune_hyperparameters(
 
     print_grid_results(MODEL_NAME, results, top_k=5)
     best = max(results, key=lambda r: r["mean_cv_auc"])
-    return {**DEFAULT_PARAMS, **best["params"]}
+    return {**default_params, **best["params"]}
 
 
 # ──────────────────────────────────────────────
@@ -383,26 +376,20 @@ def train_and_evaluate(
     X_val:   np.ndarray,
     y_val:   np.ndarray,
     feature_cols: List[str],
-    params: Optional[Dict[str, Any]] = None,
+    params: Dict[str, Any],
+    plots_dir: Path,
 ) -> Dict:
     """
     Cumple el contrato común de Fase 3.
-    Si `params` is None usa DEFAULT_PARAMS (comportamiento Fase 4).
     """
-    params = params or DEFAULT_PARAMS
     print(f"\n[{MODEL_NAME}] Entrenando con params: {params}...")
 
     # Filtrar solo los kwargs aceptados por train_mlp
-    train_kwargs = {
-        k: v for k, v in params.items()
-        if k in {"hidden_1", "hidden_2", "dropout_p", "learning_rate",
-                 "batch_size", "max_epochs", "patience"}
-    }
+    train_kwargs = {k: v for k, v in params.items() if k in TRAIN_KWARGS}
     best_params, history = train_mlp(X_train, y_train, X_val, y_val, **train_kwargs)
 
-    dropout_p = params.get("dropout_p", DROPOUT_P)
-    y_proba_train = predict_proba(X_train, best_params, dropout_p=dropout_p)
-    y_proba_val   = predict_proba(X_val,   best_params, dropout_p=dropout_p)
+    y_proba_train = predict_proba(X_train, best_params)
+    y_proba_val   = predict_proba(X_val,   best_params)
     y_pred_train  = (y_proba_train >= 0.5).astype(int)
     y_pred_val    = (y_proba_val   >= 0.5).astype(int)
 
@@ -414,9 +401,9 @@ def train_and_evaluate(
     print(f"[{MODEL_NAME}] Epochs entrenados: {len(history)} | "
           f"Mejor AUC val: {max(h['val_auc'] for h in history):.4f}")
 
-    plot_confusion_matrix(y_val, y_pred_val, MODEL_NAME)
-    plot_roc_curve(y_val, y_proba_val, MODEL_NAME)
-    _plot_training_curves(history)
+    plot_confusion_matrix(y_val, y_pred_val, MODEL_NAME, plots_dir)
+    plot_roc_curve(y_val, y_proba_val, MODEL_NAME, plots_dir)
+    _plot_training_curves(history, plots_dir)
 
     return {
         "model_name":    MODEL_NAME,
@@ -428,7 +415,7 @@ def train_and_evaluate(
     }
 
 
-def _plot_training_curves(history: List[Dict], save_dir: str = "results/plots") -> str:
+def _plot_training_curves(history: List[Dict], save_dir: Path) -> str:
     """Guarda la evolución de train_loss / val_loss / val_auc por epoch."""
     import matplotlib
     matplotlib.use("Agg")

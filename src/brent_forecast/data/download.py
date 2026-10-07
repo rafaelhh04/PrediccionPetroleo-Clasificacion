@@ -1,13 +1,13 @@
 """Download the raw datasets from Kaggle and verify their integrity.
 
-The Kaggle dataset ``kavyadhyani/global-oil-prices-andgeopolitical-events`` is
-fetched with :mod:`kagglehub`, which reads the ``KAGGLE_USERNAME`` and
-``KAGGLE_KEY`` environment variables (or ``~/.kaggle/kaggle.json``).
+The Kaggle dataset configured in ``data.kaggle_dataset`` is fetched with
+:mod:`kagglehub`, which reads the ``KAGGLE_USERNAME`` and ``KAGGLE_KEY``
+environment variables (or ``~/.kaggle/kaggle.json``).
 
 Upstream file names are not relied upon: each CSV is identified by its header
-and copied to the data directory under the canonical name expected by
-:mod:`brent_forecast.data.load`. Every copied file is then checked against the
-SHA-256 digests stored in the checksums file.
+and copied to the data directory under the canonical name configured in
+``data.oil_filename`` / ``data.events_filename``. Every copied file is then
+checked against the SHA-256 digests stored in the checksums file.
 """
 
 import hashlib
@@ -20,16 +20,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from brent_forecast.data.load import DATA_DIR as _DATA_DIR
-from brent_forecast.data.load import EVENTS_FILENAME, OIL_FILENAME
+from brent_forecast.config import DataSettings
 
 logger = logging.getLogger(__name__)
-
-KAGGLE_DATASET = "kavyadhyani/global-oil-prices-andgeopolitical-events"
-CANONICAL_FILENAMES = (OIL_FILENAME, EVENTS_FILENAME)
-
-DATA_DIR = Path(_DATA_DIR)
-CHECKSUMS_PATH = Path("configs/data_checksums.json")
 
 # Columns that identify each dataset. The events columns are also present in
 # the oil dataset, so the oil signature is checked first.
@@ -64,41 +57,41 @@ def has_kaggle_credentials() -> bool:
     return (config_dir / "kaggle.json").is_file()
 
 
-def load_checksums(path: Path) -> dict[str, str | None]:
+def load_checksums(path: Path, data: DataSettings) -> dict[str, str | None]:
     """Load the expected digests; unknown files map to ``None``."""
     if not path.is_file():
-        return dict.fromkeys(CANONICAL_FILENAMES)
+        return dict.fromkeys(data.filenames)
     payload = json.loads(path.read_text(encoding="utf-8"))
     files: dict[str, str | None] = payload.get("files", {})
-    return {name: files.get(name) for name in CANONICAL_FILENAMES}
+    return {name: files.get(name) for name in data.filenames}
 
 
-def save_checksums(path: Path, checksums: dict[str, str | None]) -> None:
+def save_checksums(path: Path, checksums: dict[str, str | None], data: DataSettings) -> None:
     """Write the digests file in a stable, diff-friendly format."""
     payload = {
-        "dataset": KAGGLE_DATASET,
+        "dataset": data.kaggle_dataset,
         "algorithm": "sha256",
-        "files": {name: checksums.get(name) for name in CANONICAL_FILENAMES},
+        "files": {name: checksums.get(name) for name in data.filenames},
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
-def identify_csv(path: Path) -> str | None:
+def identify_csv(path: Path, data: DataSettings) -> str | None:
     """Return the canonical file name matching the CSV header, or None."""
     columns = {str(c).strip() for c in pd.read_csv(path, nrows=0).columns}
     if _OIL_SIGNATURE <= columns:
-        return OIL_FILENAME
+        return data.oil_filename
     if _EVENTS_SIGNATURE <= columns:
-        return EVENTS_FILENAME
+        return data.events_filename
     return None
 
 
-def map_to_canonical(source_dir: Path) -> dict[str, Path]:
+def map_to_canonical(source_dir: Path, data: DataSettings) -> dict[str, Path]:
     """Map every canonical file name to exactly one CSV found under ``source_dir``."""
-    found: dict[str, list[Path]] = {name: [] for name in CANONICAL_FILENAMES}
+    found: dict[str, list[Path]] = {name: [] for name in data.filenames}
     for csv in sorted(source_dir.rglob("*.csv")):
-        name = identify_csv(csv)
+        name = identify_csv(csv, data)
         if name is not None:
             found[name].append(csv)
 
@@ -116,6 +109,7 @@ def map_to_canonical(source_dir: Path) -> dict[str, Path]:
 def verify_checksums(
     data_dir: Path,
     checksums_path: Path,
+    data: DataSettings,
     *,
     update: bool = False,
 ) -> dict[str, str]:
@@ -137,12 +131,12 @@ def verify_checksums(
     ChecksumMismatchError
         If a file does not match its recorded digest.
     """
-    expected = load_checksums(checksums_path)
+    expected = load_checksums(checksums_path, data)
     actual: dict[str, str] = {}
     mismatches: list[str] = []
     recorded_new = False
 
-    for name in CANONICAL_FILENAMES:
+    for name in data.filenames:
         path = data_dir / name
         if not path.is_file():
             raise FileNotFoundError(f"Missing data file: {path}")
@@ -162,14 +156,15 @@ def verify_checksums(
     if mismatches:
         raise ChecksumMismatchError("Checksum mismatch:\n  " + "\n  ".join(mismatches))
     if recorded_new:
-        save_checksums(checksums_path, expected)
+        save_checksums(checksums_path, expected, data)
         logger.warning("Checksums written to %s; commit this file.", checksums_path)
     return actual
 
 
 def download_dataset(
-    data_dir: Path = DATA_DIR,
-    checksums_path: Path = CHECKSUMS_PATH,
+    data_dir: Path,
+    checksums_path: Path,
+    data: DataSettings,
     *,
     force: bool = False,
     update_checksums: bool = False,
@@ -183,6 +178,8 @@ def download_dataset(
         Destination directory for the canonical CSV files.
     checksums_path
         JSON file with the expected SHA-256 digests.
+    data
+        Dataset handle and canonical file names.
     force
         Bypass the kagglehub cache and download again.
     update_checksums
@@ -206,16 +203,16 @@ def download_dataset(
                 "~/.kaggle/kaggle.json); trying an anonymous download."
             )
 
-    logger.info("Downloading Kaggle dataset %s", KAGGLE_DATASET)
+    logger.info("Downloading Kaggle dataset %s", data.kaggle_dataset)
     try:
-        source_dir = Path(downloader(KAGGLE_DATASET, force_download=force))
+        source_dir = Path(downloader(data.kaggle_dataset, force_download=force))
     except Exception as exc:
         raise DataDownloadError(
-            f"Could not download {KAGGLE_DATASET}: {exc}. Check your Kaggle "
+            f"Could not download {data.kaggle_dataset}: {exc}. Check your Kaggle "
             "credentials or follow the manual download steps in the README."
         ) from exc
 
-    mapping = map_to_canonical(source_dir)
+    mapping = map_to_canonical(source_dir, data)
     data_dir.mkdir(parents=True, exist_ok=True)
     targets: dict[str, Path] = {}
     for name, source in mapping.items():
@@ -225,7 +222,7 @@ def download_dataset(
         targets[name] = target
 
     try:
-        verify_checksums(data_dir, checksums_path, update=update_checksums)
+        verify_checksums(data_dir, checksums_path, data, update=update_checksums)
     except ChecksumMismatchError:
         for target in targets.values():
             target.unlink(missing_ok=True)

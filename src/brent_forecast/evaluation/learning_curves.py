@@ -9,38 +9,55 @@ Todas las curvas se guardan en results/plots/learning_curve_<modelo>.png.
 """
 
 import os
+from pathlib import Path
+from typing import Sequence
+
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from sklearn.model_selection import learning_curve
-from brent_forecast.models.tuning import make_time_series_cv, SCORING
+from sklearn.model_selection import TimeSeriesSplit
 
 
-PLOTS_DIR = "results/plots"
-TRAIN_SIZES = np.array([0.1, 0.25, 0.5, 0.75, 1.0])
-
-
-def plot_learning_curve_sklearn(estimator, X_train, y_train, model_name: str) -> str:
+def plot_learning_curve_sklearn(
+    estimator,
+    X_train,
+    y_train,
+    model_name: str,
+    *,
+    cv: TimeSeriesSplit,
+    scoring: str,
+    train_sizes: Sequence[float],
+    plots_dir: Path,
+) -> str:
     """
     Curva de aprendizaje para estimator sklearn con TimeSeriesSplit.
 
     Devuelve la ruta del PNG generado.
     """
     print(f"[learning_curve] Calculando curva para {model_name}...")
-    cv = make_time_series_cv()
     sizes, train_scores, val_scores = learning_curve(
         estimator, X_train, y_train,
-        train_sizes=TRAIN_SIZES,
+        train_sizes=np.asarray(train_sizes),
         cv=cv,
-        scoring=SCORING,
+        scoring=scoring,
         n_jobs=-1,
     )
-    return _save_learning_curve_plot(sizes, train_scores, val_scores, model_name)
+    return _save_learning_curve_plot(sizes, train_scores, val_scores, model_name, plots_dir)
 
 
-def plot_learning_curve_mlp(X_train, y_train, mlp_params: dict, model_name: str = "MLP NumPy") -> str:
+def plot_learning_curve_mlp(
+    X_train,
+    y_train,
+    mlp_params: dict,
+    *,
+    cv: TimeSeriesSplit,
+    train_sizes: Sequence[float],
+    plots_dir: Path,
+    model_name: str = "MLP NumPy",
+) -> str:
     """
     Curva de aprendizaje manual para MLP NumPy.
 
@@ -49,20 +66,16 @@ def plot_learning_curve_mlp(X_train, y_train, mlp_params: dict, model_name: str 
     Reporta media y std de AUC train vs AUC val.
     """
     from sklearn.metrics import roc_auc_score
-    from brent_forecast.models.neural_network import train_mlp, predict_proba
+    from brent_forecast.models.neural_network import TRAIN_KWARGS, train_mlp, predict_proba
 
     print(f"[learning_curve] Calculando curva manual para {model_name}...")
-    cv = make_time_series_cv()
+    sizes_rel = np.asarray(train_sizes)
     train_scores = []
     val_scores   = []
 
-    train_kwargs = {
-        k: v for k, v in mlp_params.items()
-        if k in {"hidden_1", "hidden_2", "dropout_p", "learning_rate",
-                 "batch_size", "max_epochs", "patience"}
-    }
+    train_kwargs = {k: v for k, v in mlp_params.items() if k in TRAIN_KWARGS}
 
-    for frac in TRAIN_SIZES:
+    for frac in sizes_rel:
         size_train = []
         size_val   = []
         for tr_idx, va_idx in cv.split(X_train):
@@ -81,13 +94,13 @@ def plot_learning_curve_mlp(X_train, y_train, mlp_params: dict, model_name: str 
         print(f"[learning_curve]   frac={frac:.2f} → AUC train {np.mean(size_train):.4f} | "
               f"AUC CV {np.mean(size_val):.4f}")
 
-    sizes_abs = (TRAIN_SIZES * len(X_train)).astype(int)
+    sizes_abs = (sizes_rel * len(X_train)).astype(int)
     return _save_learning_curve_plot(
-        sizes_abs, np.array(train_scores), np.array(val_scores), model_name
+        sizes_abs, np.array(train_scores), np.array(val_scores), model_name, plots_dir
     )
 
 
-def _save_learning_curve_plot(sizes, train_scores, val_scores, model_name: str) -> str:
+def _save_learning_curve_plot(sizes, train_scores, val_scores, model_name: str, plots_dir: Path) -> str:
     """Plot común: media ± std de AUC train y AUC CV por tamaño de muestra."""
     train_mean = train_scores.mean(axis=1)
     train_std  = train_scores.std(axis=1)
@@ -107,9 +120,9 @@ def _save_learning_curve_plot(sizes, train_scores, val_scores, model_name: str) 
     ax.grid(alpha=0.3)
     fig.tight_layout()
 
-    os.makedirs(PLOTS_DIR, exist_ok=True)
+    os.makedirs(plots_dir, exist_ok=True)
     safe = model_name.lower().replace(" ", "_").replace("(", "").replace(")", "")
-    path = os.path.join(PLOTS_DIR, f"learning_curve_{safe}.png")
+    path = os.path.join(plots_dir, f"learning_curve_{safe}.png")
     fig.savefig(path, dpi=120)
     plt.close(fig)
     return path

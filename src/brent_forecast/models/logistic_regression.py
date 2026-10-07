@@ -10,7 +10,8 @@ Fase 5: añadida `tune_hyperparameters` con TimeSeriesSplit + GridSearchCV.
 hyperparámetros encontrados por el tuner.
 """
 
-from typing import Any, Dict, Optional
+from pathlib import Path
+from typing import Any, Dict
 
 import numpy as np
 from sklearn.linear_model import LogisticRegression
@@ -22,35 +23,27 @@ from brent_forecast.evaluation.metrics import (
     plot_confusion_matrix,
     plot_roc_curve,
 )
-from brent_forecast.models.tuning import make_time_series_cv, print_grid_results, SCORING
+from brent_forecast.config import ModelSettings
+from brent_forecast.models.tuning import print_grid_results
 
 MODEL_NAME = "Logistic Regression"
-
-
-DEFAULT_PARAMS: Dict[str, Any] = {
-    "C": 1.0,
-    "solver": "lbfgs",
-    "max_iter": 1000,
-    "random_state": 42,
-}
-
-GRID: Dict[str, list] = {
-    "C": [0.01, 0.1, 1.0, 10.0],
-}
 
 
 def tune_hyperparameters(
     X_train: np.ndarray,
     y_train: np.ndarray,
-    cv=None,
+    cv,
+    config: ModelSettings,
+    scoring: str,
+    seed: int,
 ) -> Dict[str, Any]:
     """
-    Grid search con TimeSeriesSplit sobre el espacio definido en GRID.
-    Devuelve un dict de hyperparámetros completos (DEFAULT_PARAMS + best).
+    Grid search con TimeSeriesSplit sobre `config.grid`.
+    Devuelve un dict de hyperparámetros completos (config.params + seed + best).
     """
-    cv = cv or make_time_series_cv()
-    base = LogisticRegression(**DEFAULT_PARAMS)
-    grid = GridSearchCV(base, GRID, cv=cv, scoring=SCORING, n_jobs=-1, refit=False)
+    default_params = {**config.params, "random_state": seed}
+    base = LogisticRegression(**default_params)
+    grid = GridSearchCV(base, config.grid, cv=cv, scoring=scoring, n_jobs=-1, refit=False)
     grid.fit(X_train, y_train)
 
     results = [
@@ -63,7 +56,7 @@ def tune_hyperparameters(
     ]
     print_grid_results(MODEL_NAME, results, top_k=5)
 
-    return {**DEFAULT_PARAMS, **grid.best_params_}
+    return {**default_params, **grid.best_params_}
 
 
 def train_and_evaluate(
@@ -72,19 +65,16 @@ def train_and_evaluate(
     X_val:   np.ndarray,
     y_val:   np.ndarray,
     feature_cols: list,
-    params: Optional[Dict[str, Any]] = None,
+    params: Dict[str, Any],
+    plots_dir: Path,
 ) -> dict:
     """
     Entrena LogReg sobre train, predice sobre val, calcula métricas y plots.
 
-    Si `params` is None usa DEFAULT_PARAMS (comportamiento Fase 3).
-    En Fase 5 se pasa el dict devuelto por `tune_hyperparameters`.
-
     Nota: el parámetro `penalty` se omite — su default es L2, y pasar
     `penalty='l2'` explícitamente lanza FutureWarning en sklearn ≥1.8.
     """
-    print(f"\n[{MODEL_NAME}] Entrenando con params: {params or DEFAULT_PARAMS}...")
-    params = params or DEFAULT_PARAMS
+    print(f"\n[{MODEL_NAME}] Entrenando con params: {params}...")
 
     model = LogisticRegression(**params)
     model.fit(X_train, y_train)
@@ -100,8 +90,8 @@ def train_and_evaluate(
     print_full_metrics(metrics_train, "Train", MODEL_NAME)
     print_full_metrics(metrics_val,   "Val",   MODEL_NAME)
 
-    plot_confusion_matrix(y_val, y_pred_val, MODEL_NAME)
-    plot_roc_curve(y_val, y_proba_val, MODEL_NAME)
+    plot_confusion_matrix(y_val, y_pred_val, MODEL_NAME, plots_dir)
+    plot_roc_curve(y_val, y_proba_val, MODEL_NAME, plots_dir)
 
     _print_top_coefficients(model, feature_cols, top_k=5)
 

@@ -1,0 +1,83 @@
+# Default configuration for the Brent direction classifier.
+#
+# Any value can be overridden with an environment variable prefixed with
+# BRENT_ and using "__" as the nesting delimiter, e.g.:
+#   BRENT_SEED=7
+#   BRENT_PATHS__DATA_DIR=/mnt/data
+#   BRENT_SPLIT__TRAIN_END=2021-01-01
+#   BRENT_MODELS__RANDOM_FOREST__GRID='{"max_depth": [5, 10]}'
+# Relative paths are resolved against the current working directory.
+
+seed: 42
+
+paths:
+  data_dir: data/raw
+  results_dir: results
+  checksums_file: configs/data_checksums.json
+
+data:
+  kaggle_dataset: kavyadhyani/global-oil-prices-andgeopolitical-events
+  oil_filename: oil_geopolitics_dataset_2010_2026.csv
+  events_filename: geopolitical_events_timeline.csv
+
+# Strict chronological split: train < train_end <= val < val_end <= test.
+split:
+  train_end: 2022-01-01
+  val_end: 2024-01-01
+
+preprocessing:
+  vif_threshold: 10.0     # iteratively drop the feature with the highest VIF above this
+  winsor_lower: 0.01      # percentile bounds for return features (fitted on train only)
+  winsor_upper: 0.99
+
+cv:
+  n_splits: 5             # TimeSeriesSplit folds (expanding window)
+  scoring: roc_auc
+
+evaluation:
+  learning_curve_train_sizes: [0.1, 0.25, 0.5, 0.75, 1.0]
+
+# `params` are the fixed hyperparameters; `grid` is the search space.
+# random_state is injected from `seed` for every model.
+models:
+  logistic_regression:
+    params:
+      C: 1.0
+      solver: lbfgs
+      max_iter: 1000
+    grid:
+      C: [0.01, 0.1, 1.0, 10.0]
+
+  svm:
+    params:
+      kernel: rbf
+      C: 1.0
+      gamma: scale
+      probability: true
+    grid:
+      C: [0.1, 1.0, 10.0]
+      gamma: [scale, 0.01, 0.1]
+
+  random_forest:
+    params:
+      n_estimators: 200
+      max_depth: 10
+      min_samples_leaf: 20
+      n_jobs: -1
+    grid:
+      n_estimators: [100, 200]
+      max_depth: [5, 10, 20]
+      min_samples_leaf: [10, 20, 50]
+
+  mlp:
+    params:
+      hidden_1: 64
+      hidden_2: 32
+      dropout_p: 0.2
+      learning_rate: 0.01
+      batch_size: 64
+      max_epochs: 100
+      patience: 10
+    grid:
+      hidden_pair: [[32, 16], [64, 32], [128, 64]]
+      learning_rate: [0.005, 0.01, 0.05]

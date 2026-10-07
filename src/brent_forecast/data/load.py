@@ -1,24 +1,16 @@
 
+from pathlib import Path
+
 import pandas as pd
 import numpy as np
-import os
-
-# Carpeta de datos relativa a la raíz del proyecto (directorio de trabajo).
-DATA_DIR = os.path.join('data', 'raw')
-
-OIL_FILENAME = 'oil_geopolitics_dataset_2010_2026.csv'
-EVENTS_FILENAME = 'geopolitical_events_timeline.csv'
-
-OIL_DATA_PATH = os.path.join(DATA_DIR, OIL_FILENAME)
-GEO_DATA_PATH = os.path.join(DATA_DIR, EVENTS_FILENAME)
 
 
-def load_oil_data()-> pd.DataFrame:
-    """Load the oil geopolitics dataset."""
+def load_oil_data(oil_path: Path, events_path: Path) -> pd.DataFrame:
+    """Load the oil geopolitics dataset and merge the geopolitical events."""
     
     # Carga de precios del petróleo y eventos geopolíticos
-    df_oil = load_oil_prices(OIL_DATA_PATH)
-    df_geo = load_geopolitical_events(GEO_DATA_PATH)
+    df_oil = load_oil_prices(oil_path)
+    df_geo = load_geopolitical_events(events_path)
     
     _inspect_overlap(df_oil, df_geo)
     
@@ -33,7 +25,7 @@ def load_oil_data()-> pd.DataFrame:
 
 
 
-def load_oil_prices(path:str)-> pd.DataFrame:
+def load_oil_prices(path: Path) -> pd.DataFrame:
     """Carga del dataset de precios del petróleo."""
     
     df=pd.read_csv(path,sep=',')
@@ -53,11 +45,11 @@ def load_oil_prices(path:str)-> pd.DataFrame:
         df = df.dropna(subset=['date'])
         print(f"{n_bad} filas con 'date' no parseable en dataset principal. Se eliminan.")
         
-    print(f"oil_geopolitics_dataset_2010_2026.csv Cargada {len(df)} filas | {df['date'].min().date()} → {df['date'].max().date()}")
+    print(f"{path.name} Cargada {len(df)} filas | {df['date'].min().date()} → {df['date'].max().date()}")
         
     return df
 
-def load_geopolitical_events(path:str)-> pd.DataFrame:
+def load_geopolitical_events(path: Path) -> pd.DataFrame:
     """Carga del dataset de eventos geopolíticos."""
     
     df=pd.read_csv(path,sep=',')
@@ -80,7 +72,7 @@ def load_geopolitical_events(path:str)-> pd.DataFrame:
     if rename_map:
         df = df.rename(columns=rename_map)
         
-    print(f"[geopolitical_events_timeline.csv] Cargado {len(df)} eventos | columnas: {df.columns.tolist()}")
+    print(f"[{path.name}] Cargado {len(df)} eventos | columnas: {df.columns.tolist()}")
     return df
 
 def _inspect_overlap(df_oil: pd.DataFrame, df_geo: pd.DataFrame) -> None:
@@ -191,16 +183,3 @@ def _validate(df: pd.DataFrame, expected_rows: int) -> None:
         print("  ✓ event_severity sin nulos")
         print("  ✓ event_type sin nulos")
         print(f"  ✓ Rango de fechas válido: {min_date.date()} → {max_date.date()}")
-
-
-# ─────────────────────────────────────────────
-# Ejecución directa (prueba del módulo)
-# ─────────────────────────────────────────────
-if __name__ == '__main__':
-    df = load_oil_data()
-    print("\nPrimeras 3 filas:")
-    print(df.head(3).to_string())
-    print("\nÚltimas 3 filas:")
-    print(df.tail(3).to_string())
-    print("\nInfo del DataFrame:")
-    print(df.dtypes)

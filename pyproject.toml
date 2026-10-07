@@ -16,6 +16,8 @@ dependencies = [
     "matplotlib>=3.10",
     "numpy>=2.2",
     "pandas>=2.2",
+    "pydantic-settings>=2.8",
+    "pyyaml>=6.0",
     "scikit-learn>=1.6",
     "statsmodels>=0.14.4",
     "typer>=0.15",
@@ -31,6 +33,7 @@ dev = [
     "pre-commit>=4.0",
     "pytest>=8.3",
     "ruff>=0.11",
+    "types-pyyaml>=6.0",
 ]
 
 [build-system]

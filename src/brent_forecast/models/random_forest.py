@@ -9,7 +9,8 @@ Fase 5: añadida `tune_hyperparameters` con TimeSeriesSplit + GridSearchCV
 sobre n_estimators, max_depth y min_samples_leaf.
 """
 
-from typing import Any, Dict, Optional
+from pathlib import Path
+from typing import Any, Dict
 
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
@@ -21,37 +22,26 @@ from brent_forecast.evaluation.metrics import (
     plot_confusion_matrix,
     plot_roc_curve,
 )
-from brent_forecast.models.tuning import make_time_series_cv, print_grid_results, SCORING
+from brent_forecast.config import ModelSettings
+from brent_forecast.models.tuning import print_grid_results
 
 MODEL_NAME = "Random Forest"
-
-
-DEFAULT_PARAMS: Dict[str, Any] = {
-    "n_estimators":     200,
-    "max_depth":        10,
-    "min_samples_leaf": 20,
-    "n_jobs":           -1,
-    "random_state":     42,
-}
-
-GRID: Dict[str, list] = {
-    "n_estimators":     [100, 200],
-    "max_depth":        [5, 10, 20],
-    "min_samples_leaf": [10, 20, 50],
-}
 
 
 def tune_hyperparameters(
     X_train: np.ndarray,
     y_train: np.ndarray,
-    cv=None,
+    cv,
+    config: ModelSettings,
+    scoring: str,
+    seed: int,
 ) -> Dict[str, Any]:
     """Grid search con TimeSeriesSplit. 18 combos × 5 folds = 90 fits."""
-    cv = cv or make_time_series_cv()
+    default_params = {**config.params, "random_state": seed}
     # n_jobs=1 en el GridSearchCV externo para no anidar paralelismo con n_jobs=-1
     # del RF interno (joblib gestiona, pero explicitar evita oversubscription).
-    base = RandomForestClassifier(**DEFAULT_PARAMS)
-    grid = GridSearchCV(base, GRID, cv=cv, scoring=SCORING, n_jobs=1, refit=False)
+    base = RandomForestClassifier(**default_params)
+    grid = GridSearchCV(base, config.grid, cv=cv, scoring=scoring, n_jobs=1, refit=False)
     grid.fit(X_train, y_train)
 
     results = [
@@ -64,7 +54,7 @@ def tune_hyperparameters(
     ]
     print_grid_results(MODEL_NAME, results, top_k=5)
 
-    return {**DEFAULT_PARAMS, **grid.best_params_}
+    return {**default_params, **grid.best_params_}
 
 
 def train_and_evaluate(
@@ -73,14 +63,12 @@ def train_and_evaluate(
     X_val:   np.ndarray,
     y_val:   np.ndarray,
     feature_cols: list,
-    params: Optional[Dict[str, Any]] = None,
+    params: Dict[str, Any],
+    plots_dir: Path,
 ) -> dict:
     """
     Entrena Random Forest.
-
-    Si `params` is None usa DEFAULT_PARAMS (comportamiento Fase 3).
     """
-    params = params or DEFAULT_PARAMS
     print(f"\n[{MODEL_NAME}] Entrenando con params: {params}...")
 
     model = RandomForestClassifier(**params)
@@ -97,8 +85,8 @@ def train_and_evaluate(
     print_full_metrics(metrics_train, "Train", MODEL_NAME)
     print_full_metrics(metrics_val,   "Val",   MODEL_NAME)
 
-    plot_confusion_matrix(y_val, y_pred_val, MODEL_NAME)
-    plot_roc_curve(y_val, y_proba_val, MODEL_NAME)
+    plot_confusion_matrix(y_val, y_pred_val, MODEL_NAME, plots_dir)
+    plot_roc_curve(y_val, y_proba_val, MODEL_NAME, plots_dir)
 
     _print_top_features(model, feature_cols, top_k=5)
 
