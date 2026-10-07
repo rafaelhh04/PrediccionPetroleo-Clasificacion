@@ -170,7 +170,13 @@ def test_mlp_tune_then_train(
         X_tr, y_tr, make_time_series_cv(2), config, scoring="roc_auc", seed=3
     )
 
-    assert params == {**config.params, "random_state": 3, "hidden_1": 8, "hidden_2": 4, "learning_rate": 0.01}
+    assert params == {
+        **config.params,
+        "random_state": 3,
+        "hidden_1": 8,
+        "hidden_2": 4,
+        "learning_rate": 0.01,
+    }
 
     result = neural_network.train_and_evaluate(X_tr, y_tr, X_va, y_va, FEATURES, params, plots_dir)
 

@@ -112,8 +112,12 @@ def test_winsorisation_bounds_come_from_train_only() -> None:
     calm = rng.normal(size=(50, 2))
     wild = calm * 1e6
 
-    train_a, val_a, _ = winsorize_features(X_train.copy(), calm.copy(), calm.copy(), ["ret", "ret_2"], 0.01, 0.99)
-    train_b, val_b, _ = winsorize_features(X_train.copy(), wild.copy(), wild.copy(), ["ret", "ret_2"], 0.01, 0.99)
+    train_a, val_a, _ = winsorize_features(
+        X_train.copy(), calm.copy(), calm.copy(), ["ret", "ret_2"], 0.01, 0.99
+    )
+    train_b, val_b, _ = winsorize_features(
+        X_train.copy(), wild.copy(), wild.copy(), ["ret", "ret_2"], 0.01, 0.99
+    )
 
     np.testing.assert_array_equal(train_a, train_b)
     hi = np.percentile(X_train, 99, axis=0)
@@ -150,7 +154,9 @@ def test_rewriting_the_future_never_changes_past_features(
     cutoff = merged_frame["date"].iloc[int(len(merged_frame) * position)]
 
     original = _features_up_to(merged_frame, cutoff)
-    rewritten = _features_up_to(_corrupt_after(merged_frame, cutoff, seed=int(position * 100)), cutoff)
+    rewritten = _features_up_to(
+        _corrupt_after(merged_frame, cutoff, seed=int(position * 100)), cutoff
+    )
 
     pd.testing.assert_frame_equal(original, rewritten)
 
@@ -207,7 +213,9 @@ def test_pipeline_keeps_x_test_out_of_tuning_and_training(
         monkeypatch.setattr(pipeline, name, spy("tune", getattr(pipeline, name)))
     for name in ("run_logreg", "run_svm", "run_rf", "run_mlp"):
         monkeypatch.setattr(pipeline, name, spy("train", getattr(pipeline, name)))
-    monkeypatch.setattr(pipeline, "plot_learning_curve_sklearn", spy("curves", lambda *a, **k: None))
+    monkeypatch.setattr(
+        pipeline, "plot_learning_curve_sklearn", spy("curves", lambda *a, **k: None)
+    )
     monkeypatch.setattr(pipeline, "plot_learning_curve_mlp", spy("curves", lambda *a, **k: None))
     monkeypatch.setattr(pipeline, "evaluate_on_test", spy("final", pipeline.evaluate_on_test))
 

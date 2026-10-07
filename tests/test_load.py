@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-from conftest import EVENTS_FILENAME, OIL_FILENAME, write_csv
 
 from brent_forecast.data.load import (
     _validate,
@@ -12,6 +11,7 @@ from brent_forecast.data.load import (
     load_oil_data,
     load_oil_prices,
 )
+from conftest import EVENTS_FILENAME, OIL_FILENAME, write_csv
 
 
 def test_load_oil_prices_parses_dates_and_strips_headers(tmp_path: Path) -> None:
@@ -49,17 +49,23 @@ def test_loaders_require_a_date_column(tmp_path: Path, loader) -> None:
 def test_load_geopolitical_events_prefixes_event_columns(tmp_path: Path) -> None:
     path = tmp_path / "events.csv"
     path.write_text(
-        "date,event_type,event_description,event_severity\n"
-        "2011-02-15,war,Libya,8\nbad,opec,cut,5\n"
+        "date,event_type,event_description,event_severity\n2011-02-15,war,Libya,8\nbad,opec,cut,5\n"
     )
 
     df = load_geopolitical_events(path)
 
-    assert list(df.columns) == ["date", "geo_event_type", "geo_event_description", "geo_event_severity"]
+    assert list(df.columns) == [
+        "date",
+        "geo_event_type",
+        "geo_event_description",
+        "geo_event_severity",
+    ]
     assert len(df) == 1  # the unparsable date is dropped
 
 
-def test_merge_keeps_one_row_per_oil_day(merged_frame: pd.DataFrame, oil_frame: pd.DataFrame) -> None:
+def test_merge_keeps_one_row_per_oil_day(
+    merged_frame: pd.DataFrame, oil_frame: pd.DataFrame
+) -> None:
     assert len(merged_frame) == len(oil_frame)
     assert merged_frame["date"].is_monotonic_increasing
     assert not merged_frame["date"].duplicated().any()

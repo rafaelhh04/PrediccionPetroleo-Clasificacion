@@ -81,7 +81,11 @@ def test_log_full_metrics(caplog: pytest.LogCaptureFixture) -> None:
 
 @pytest.mark.parametrize(
     ("name", "slug"),
-    [("Logistic Regression", "logistic_regression"), ("SVM (RBF)", "svm_rbf"), ("MLP NumPy", "mlp_numpy")],
+    [
+        ("Logistic Regression", "logistic_regression"),
+        ("SVM (RBF)", "svm_rbf"),
+        ("MLP NumPy", "mlp_numpy"),
+    ],
 )
 def test_safe_name(name: str, slug: str) -> None:
     assert safe_name(name) == slug
