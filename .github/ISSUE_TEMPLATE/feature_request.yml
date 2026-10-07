@@ -1,0 +1,35 @@
+name: Feature request
+description: Propose a new capability or an improvement.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What limitation or need motivates this request?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should change? Mention affected modules, CLI commands or config keys.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [data, features, models, evaluation, CLI / config, tooling / CI, docs]
+    validations:
+      required: true
+  - type: checkboxes
+    id: ml
+    attributes:
+      label: ML impact
+      options:
+        - label: This would change model results (requires a before/after comparison)

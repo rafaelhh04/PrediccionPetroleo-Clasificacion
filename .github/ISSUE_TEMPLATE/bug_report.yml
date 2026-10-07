@@ -1,0 +1,47 @@
+name: Bug report
+description: Something does not work as documented.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Exact commands, configuration overrides (`BRENT_*`) and data used.
+      placeholder: |
+        1. uv sync
+        2. BRENT_SEED=7 uv run brent train
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant part of `results/run.log` or the console output.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Commit or version
+      placeholder: "e.g. 0.1.0 or a commit SHA"
+    validations:
+      required: true
+  - type: dropdown
+    id: python
+    attributes:
+      label: Python version
+      options: ["3.12", "3.13", "other"]
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "e.g. Ubuntu 24.04, macOS 15, Windows 11"
