@@ -6,11 +6,12 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from brent_forecast.config import DEFAULT_CONFIG_PATH, load_settings
+from brent_forecast.config import load_settings
+from conftest import CONFIG_PATH
 
 
 def test_default_config_loads() -> None:
-    settings = load_settings(DEFAULT_CONFIG_PATH)
+    settings = load_settings(CONFIG_PATH)
 
     assert settings.seed == 42
     assert settings.split.train_end == date(2022, 1, 1)
@@ -25,7 +26,7 @@ def test_env_overrides_yaml(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BRENT_SPLIT__TRAIN_END", "2021-01-01")
     monkeypatch.setenv("BRENT_MODELS__RANDOM_FOREST__GRID", '{"max_depth": [5]}')
 
-    settings = load_settings(DEFAULT_CONFIG_PATH)
+    settings = load_settings(CONFIG_PATH)
 
     assert settings.seed == 7
     assert settings.split.train_end == date(2021, 1, 1)
@@ -36,14 +37,14 @@ def test_env_overrides_yaml(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_kwargs_override_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BRENT_SEED", "7")
 
-    assert load_settings(DEFAULT_CONFIG_PATH, seed=3).seed == 3
+    assert load_settings(CONFIG_PATH, seed=3).seed == 3
 
 
 def test_invalid_split_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BRENT_SPLIT__TRAIN_END", "2030-01-01")
 
     with pytest.raises(ValidationError, match="train_end"):
-        load_settings(DEFAULT_CONFIG_PATH)
+        load_settings(CONFIG_PATH)
 
 
 def test_missing_config_file(tmp_path: Path) -> None:
