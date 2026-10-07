@@ -1,64 +1,111 @@
-"""
-Red neuronal MLP implementada desde cero en NumPy puro.
+"""Multilayer perceptron implemented from scratch in pure NumPy.
 
-Arquitectura por defecto: 10 → 64 (ReLU + dropout 0.2) → 32 (ReLU + dropout 0.2) → 1 (sigmoid).
-En Fase 5 la arquitectura, lr y dropout son parametrizables vía args de
-`train_mlp` y se hace búsqueda manual con TimeSeriesSplit.
+Default architecture: n_in -> 64 (ReLU + dropout 0.2) -> 32 (ReLU + dropout 0.2)
+-> 1 (sigmoid). Layer sizes, learning rate and dropout come from the
+configuration, and the grid search is done manually with TimeSeriesSplit.
 
-Restricciones del proyecto:
-- Cero imports de torch, tensorflow, keras o sklearn.neural_network.
-- sklearn solo aparece para métricas (roc_auc_score) o vía utils.evaluation.
-- random_state=42 propagado por toda operación aleatoria (init, dropout, shuffle).
+Project constraints:
 
-Notas matemáticas clave (ver CLAUDE_CODE_PLAN_FASE4.md):
-- Init He para ReLU: W ~ N(0, sqrt(2/n_in)). Xavier para sigmoid de salida.
-- Gradiente combinado sigmoide+BCE: dZ3 = (A3 - y) / m (numéricamente estable).
-- Inverted dropout: scale por 1/keep en train; eval es identidad.
-- BCE con clipping a [1e-15, 1-1e-15] para evitar log(0).
+- No torch, tensorflow, keras or sklearn.neural_network imports.
+- sklearn is only used for metrics (``roc_auc_score``).
+- The seed (``random_state``) drives every random operation: initialisation,
+  dropout masks and shuffling.
+
+Key mathematical notes (see CLAUDE_CODE_PLAN_FASE4.md):
+
+- He initialisation for ReLU layers: ``W ~ N(0, sqrt(2 / n_in))``; Xavier for
+  the sigmoid output layer.
+- Combined sigmoid + BCE gradient: ``dZ3 = (A3 - y) / m`` (numerically stable).
+- Inverted dropout: scale by ``1 / keep`` while training; identity at inference.
+- BCE clips predictions to ``[1e-15, 1 - 1e-15]`` to avoid ``log(0)``.
 """
 
 import logging
-import os
 from itertools import product
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, TypedDict
 
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import TimeSeriesSplit
 
+from brent_forecast._types import FloatArray, IntArray, ModelResult
+from brent_forecast.config import ModelSettings
 from brent_forecast.evaluation.metrics import (
     compute_metrics,
     log_full_metrics,
     plot_confusion_matrix,
     plot_roc_curve,
+    save_figure,
 )
-from brent_forecast.config import ModelSettings
-from brent_forecast.models.tuning import log_grid_results
-
+from brent_forecast.models.tuning import GridResult, log_grid_results
 
 logger = logging.getLogger(__name__)
 
 MODEL_NAME = "MLP NumPy"
 
-# Hyperparámetros aceptados por `train_mlp` (los valores vienen de la config).
-TRAIN_KWARGS = frozenset({
-    "hidden_1", "hidden_2", "dropout_p", "learning_rate",
-    "batch_size", "max_epochs", "patience", "random_state",
-})
+# Hyperparameters accepted by ``train_mlp`` (values come from the configuration).
+TRAIN_KWARGS = frozenset(
+    {
+        "hidden_1",
+        "hidden_2",
+        "dropout_p",
+        "learning_rate",
+        "batch_size",
+        "max_epochs",
+        "patience",
+        "random_state",
+    }
+)
+
+Params = dict[str, FloatArray]
+"""Network weights: ``W1, b1, W2, b2, W3, b3``."""
+
+
+class ForwardCache(TypedDict):
+    """Intermediate values of the forward pass needed by backpropagation."""
+
+    X: FloatArray
+    Z1: FloatArray
+    A1: FloatArray
+    D1: FloatArray | None
+    Z2: FloatArray
+    A2: FloatArray
+    D2: FloatArray | None
+    Z3: FloatArray
+    A3: FloatArray
+
+
+class EpochRecord(TypedDict):
+    """Training history of one epoch."""
+
+    epoch: int
+    train_loss: float
+    val_loss: float
+    val_auc: float
 
 
 # ──────────────────────────────────────────────
-# 1. Funciones de activación y derivadas
+# 1. Activations and derivatives
 # ──────────────────────────────────────────────
 
-def relu(z: np.ndarray) -> np.ndarray:
+
+def relu(z: FloatArray) -> FloatArray:
+    """Apply the rectified linear unit."""
     return np.maximum(0.0, z)
 
 
-def relu_deriv(z: np.ndarray) -> np.ndarray:
+def relu_deriv(z: FloatArray) -> FloatArray:
+    """Compute the derivative of ReLU (0 at z = 0)."""
     return (z > 0).astype(z.dtype)
 
 
-def sigmoid(z: np.ndarray) -> np.ndarray:
+def sigmoid(z: FloatArray) -> FloatArray:
+    """Compute the logistic sigmoid in a numerically stable way."""
     z_clip = np.clip(z, -500.0, 500.0)
     pos = 1.0 / (1.0 + np.exp(-z_clip))
     neg = np.exp(z_clip) / (1.0 + np.exp(z_clip))
@@ -66,65 +113,81 @@ def sigmoid(z: np.ndarray) -> np.ndarray:
 
 
 # ──────────────────────────────────────────────
-# 2. Inicialización (He / Xavier)
+# 2. Initialisation (He / Xavier)
 # ──────────────────────────────────────────────
+
 
 def initialize_parameters(
     n_in: int,
     n_h1: int,
     n_h2: int,
     rng: np.random.RandomState,
-) -> Dict[str, np.ndarray]:
+) -> Params:
+    """Initialise the weights: He for the ReLU layers, Xavier for the output layer."""
     return {
         "W1": rng.randn(n_in, n_h1) * np.sqrt(2.0 / n_in),
         "b1": np.zeros(n_h1),
         "W2": rng.randn(n_h1, n_h2) * np.sqrt(2.0 / n_h1),
         "b2": np.zeros(n_h2),
-        "W3": rng.randn(n_h2, 1)    * np.sqrt(1.0 / n_h2),
+        "W3": rng.randn(n_h2, 1) * np.sqrt(1.0 / n_h2),
         "b3": np.zeros(1),
     }
 
 
 # ──────────────────────────────────────────────
-# 3. Forward pass (con inverted dropout en train)
+# 3. Forward pass (inverted dropout while training)
 # ──────────────────────────────────────────────
 
+
 def forward(
-    X: np.ndarray,
-    params: Dict[str, np.ndarray],
+    X: FloatArray,
+    params: Params,
     training: bool,
     rng: np.random.RandomState,
     dropout_p: float,
-) -> Tuple[np.ndarray, Dict[str, np.ndarray]]:
-    """
-    Si training=True aplica inverted dropout con prob `dropout_p`.
-    Si training=False dropout es identidad — red determinista.
+) -> tuple[FloatArray, ForwardCache]:
+    """Run the forward pass.
+
+    With ``training=True`` inverted dropout with probability ``dropout_p`` is
+    applied to both hidden layers; with ``training=False`` dropout is the
+    identity and the network is deterministic.
+
+    Returns
+    -------
+    A3 : numpy.ndarray
+        Output probabilities, shape ``(n, 1)``.
+    cache : ForwardCache
+        Intermediate values for ``backward``.
     """
     keep = 1.0 - dropout_p
 
     Z1 = X @ params["W1"] + params["b1"]
     A1 = relu(Z1)
+    D1: FloatArray | None = None
     if training:
         D1 = (rng.rand(*A1.shape) < keep).astype(A1.dtype)
         A1 = A1 * D1 / keep
-    else:
-        D1 = None
 
     Z2 = A1 @ params["W2"] + params["b2"]
     A2 = relu(Z2)
+    D2: FloatArray | None = None
     if training:
         D2 = (rng.rand(*A2.shape) < keep).astype(A2.dtype)
         A2 = A2 * D2 / keep
-    else:
-        D2 = None
 
     Z3 = A2 @ params["W3"] + params["b3"]
     A3 = sigmoid(Z3)
 
-    cache = {
-        "X": X, "Z1": Z1, "A1": A1, "D1": D1,
-        "Z2": Z2, "A2": A2, "D2": D2,
-        "Z3": Z3, "A3": A3,
+    cache: ForwardCache = {
+        "X": X,
+        "Z1": Z1,
+        "A1": A1,
+        "D1": D1,
+        "Z2": Z2,
+        "A2": A2,
+        "D2": D2,
+        "Z3": Z3,
+        "A3": A3,
     }
     return A3, cache
 
@@ -133,7 +196,9 @@ def forward(
 # 4. Loss: binary cross-entropy
 # ──────────────────────────────────────────────
 
-def binary_cross_entropy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+
+def binary_cross_entropy(y_true: FloatArray, y_pred: FloatArray) -> float:
+    """Mean binary cross-entropy with predictions clipped away from 0 and 1."""
     eps = 1e-15
     y_pred = np.clip(y_pred.ravel(), eps, 1.0 - eps)
     y_true = y_true.ravel().astype(np.float64)
@@ -144,12 +209,14 @@ def binary_cross_entropy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 # 5. Backward pass
 # ──────────────────────────────────────────────
 
+
 def backward(
-    y_true: np.ndarray,
-    cache: Dict[str, np.ndarray],
-    params: Dict[str, np.ndarray],
+    y_true: FloatArray,
+    cache: ForwardCache,
+    params: Params,
     dropout_p: float,
-) -> Dict[str, np.ndarray]:
+) -> Params:
+    """Backpropagate the mean BCE loss and return ``dW1, db1, ..., dW3, db3``."""
     keep = 1.0 - dropout_p
     m = y_true.shape[0]
     y = y_true.reshape(-1, 1).astype(np.float64)
@@ -179,54 +246,78 @@ def backward(
 # 6. SGD step
 # ──────────────────────────────────────────────
 
-def sgd_step(
-    params: Dict[str, np.ndarray],
-    grads: Dict[str, np.ndarray],
-    lr: float,
-) -> Dict[str, np.ndarray]:
+
+def sgd_step(params: Params, grads: Params, lr: float) -> Params:
+    """Apply one vanilla gradient-descent update."""
     for key in ("W1", "b1", "W2", "b2", "W3", "b3"):
         params[key] = params[key] - lr * grads[f"d{key}"]
     return params
 
 
 # ──────────────────────────────────────────────
-# 7. Training loop parametrizado (Fase 5)
+# 7. Training loop
 # ──────────────────────────────────────────────
 
-def train_mlp(
-    X_train: np.ndarray,
-    y_train: np.ndarray,
-    X_val:   np.ndarray,
-    y_val:   np.ndarray,
-    *,
-    hidden_1:      int,
-    hidden_2:      int,
-    dropout_p:     float,
-    learning_rate: float,
-    batch_size:    int,
-    max_epochs:    int,
-    patience:      int,
-    random_state:  int,
-    verbose:       bool  = True,
-) -> Tuple[Dict[str, np.ndarray], List[Dict]]:
-    """
-    Entrena con SGD mini-batch + shuffle por epoch + early stopping sobre val AUC.
-    Todos los hyperparámetros (incluida la semilla) llegan como argumentos.
-    `verbose=False` silencia los logs por epoch — útil durante el tuning.
-    """
-    from sklearn.metrics import roc_auc_score  # uso permitido: solo monitorización
 
-    rng   = np.random.RandomState(random_state)
-    n_in  = X_train.shape[1]
-    n     = X_train.shape[0]
+def train_mlp(
+    X_train: FloatArray,
+    y_train: FloatArray,
+    X_val: FloatArray,
+    y_val: FloatArray,
+    *,
+    hidden_1: int,
+    hidden_2: int,
+    dropout_p: float,
+    learning_rate: float,
+    batch_size: int,
+    max_epochs: int,
+    patience: int,
+    random_state: int,
+    verbose: bool = True,
+) -> tuple[Params, list[EpochRecord]]:
+    """Train with mini-batch SGD, per-epoch shuffling and early stopping on val AUC.
+
+    Parameters
+    ----------
+    X_train, y_train
+        Training data.
+    X_val, y_val
+        Data used for early stopping.
+    hidden_1, hidden_2
+        Hidden layer sizes.
+    dropout_p
+        Dropout probability of both hidden layers.
+    learning_rate
+        SGD step size.
+    batch_size
+        Mini-batch size.
+    max_epochs
+        Maximum number of epochs.
+    patience
+        Epochs without val AUC improvement before stopping.
+    random_state
+        Seed of the generator used for init, dropout and shuffling.
+    verbose
+        Log per-epoch progress (disabled during tuning).
+
+    Returns
+    -------
+    best_params : dict
+        Weights of the epoch with the best validation AUC.
+    history : list of dict
+        Loss and AUC per epoch.
+    """
+    rng = np.random.RandomState(random_state)
+    n_in = X_train.shape[1]
+    n = X_train.shape[0]
 
     params = initialize_parameters(n_in, hidden_1, hidden_2, rng)
 
-    best_auc          = -np.inf
-    best_params       = {k: v.copy() for k, v in params.items()}
-    best_epoch        = 0
+    best_auc = -np.inf
+    best_params = {k: v.copy() for k, v in params.items()}
+    best_epoch = 0
     epochs_no_improve = 0
-    history: List[Dict] = []
+    history: list[EpochRecord] = []
 
     for epoch in range(1, max_epochs + 1):
         perm = rng.permutation(n)
@@ -235,49 +326,54 @@ def train_mlp(
 
         epoch_losses = []
         for start in range(0, n, batch_size):
-            Xb = X_shuf[start:start + batch_size]
-            yb = y_shuf[start:start + batch_size]
+            Xb = X_shuf[start : start + batch_size]
+            yb = y_shuf[start : start + batch_size]
 
             A3, cache = forward(Xb, params, training=True, rng=rng, dropout_p=dropout_p)
-            loss      = binary_cross_entropy(yb, A3)
-            grads     = backward(yb, cache, params, dropout_p=dropout_p)
-            params    = sgd_step(params, grads, learning_rate)
+            loss = binary_cross_entropy(yb, A3)
+            grads = backward(yb, cache, params, dropout_p=dropout_p)
+            params = sgd_step(params, grads, learning_rate)
             epoch_losses.append(loss)
 
         train_loss = float(np.mean(epoch_losses))
-        val_proba  = predict_proba(X_val, params)
-        val_loss   = binary_cross_entropy(y_val, val_proba)
-        val_auc    = float(roc_auc_score(y_val, val_proba))
+        val_proba = predict_proba(X_val, params)
+        val_loss = binary_cross_entropy(y_val, val_proba)
+        val_auc = float(roc_auc_score(y_val, val_proba))
 
-        history.append({
-            "epoch": epoch,
-            "train_loss": train_loss,
-            "val_loss":   val_loss,
-            "val_auc":    val_auc,
-        })
+        history.append(
+            {
+                "epoch": epoch,
+                "train_loss": train_loss,
+                "val_loss": val_loss,
+                "val_auc": val_auc,
+            }
+        )
 
         improved = val_auc > best_auc
         if improved:
-            best_auc          = val_auc
-            best_params       = {k: v.copy() for k, v in params.items()}
-            best_epoch        = epoch
+            best_auc = val_auc
+            best_params = {k: v.copy() for k, v in params.items()}
+            best_epoch = epoch
             epochs_no_improve = 0
         else:
             epochs_no_improve += 1
 
-        if verbose:
-            flag = " ★" if improved else ""
-            if epoch == 1 or epoch % 5 == 0 or improved:
-                logger.info(
-                    "[MLP] epoch %3d | train_loss %.4f | val_loss %.4f | val_auc %.4f%s",
-                    epoch, train_loss, val_loss, val_auc, flag,
-                )
+        if verbose and (epoch == 1 or epoch % 5 == 0 or improved):
+            logger.info(
+                "[MLP] epoch %3d | train_loss %.4f | val_loss %.4f | val_auc %.4f%s",
+                epoch,
+                train_loss,
+                val_loss,
+                val_auc,
+                " *" if improved else "",
+            )
 
         if epochs_no_improve >= patience:
             if verbose:
                 logger.info(
                     "[MLP] Early stopping at epoch %d (no improvement for %d epochs)",
-                    epoch, patience,
+                    epoch,
+                    patience,
                 )
             break
 
@@ -287,51 +383,51 @@ def train_mlp(
 
 
 # ──────────────────────────────────────────────
-# 8. Predicción
+# 8. Prediction
 # ──────────────────────────────────────────────
 
-def predict_proba(
-    X: np.ndarray,
-    params: Dict[str, np.ndarray],
-) -> np.ndarray:
-    """
-    Forward con training=False; devuelve P(y=1) como vector 1D.
-    En inferencia el dropout es la identidad, así que no depende de dropout_p.
-    """
+
+def predict_proba(X: FloatArray, params: Params) -> FloatArray:
+    """Return ``P(y=1)`` as a 1-D array (forward pass with dropout disabled)."""
     dummy_rng = np.random.RandomState(0)
     A3, _ = forward(X, params, training=False, rng=dummy_rng, dropout_p=0.0)
     return A3.ravel()
 
 
-def predict(
-    X: np.ndarray,
-    params: Dict[str, np.ndarray],
-    threshold: float = 0.5,
-) -> np.ndarray:
+def predict(X: FloatArray, params: Params, threshold: float = 0.5) -> IntArray:
+    """Return hard 0/1 predictions."""
     return (predict_proba(X, params) >= threshold).astype(int)
 
 
 # ──────────────────────────────────────────────
-# 9. Hyperparameter tuning (búsqueda manual sobre TimeSeriesSplit)
+# 9. Hyperparameter tuning (manual search over TimeSeriesSplit)
 # ──────────────────────────────────────────────
 
+
 def tune_hyperparameters(
-    X_train: np.ndarray,
-    y_train: np.ndarray,
-    cv,
+    X_train: FloatArray,
+    y_train: FloatArray,
+    cv: TimeSeriesSplit,
     config: ModelSettings,
     scoring: str,
     seed: int,
-) -> Dict[str, Any]:
-    """
-    Búsqueda manual sobre `config.grid` (hidden_pair × learning_rate) usando TimeSeriesSplit.
-    Para cada combinación, entrena en cada fold y computa AUC val medio.
+) -> dict[str, Any]:
+    """Manual grid search over ``hidden_pair x learning_rate`` with TimeSeriesSplit.
 
-    No usa GridSearchCV porque la MLP no es sklearn-compatible; hacer un
-    wrapper BaseEstimator añadiría complejidad innecesaria.
-    """
-    from sklearn.metrics import roc_auc_score
+    Every combination is trained on each fold and scored by the mean fold
+    AUC. ``GridSearchCV`` is not used because the MLP is not an sklearn
+    estimator.
 
+    Returns
+    -------
+    dict
+        Full hyperparameters: ``config.params`` + ``random_state`` + best grid values.
+
+    Raises
+    ------
+    ValueError
+        If ``scoring`` is not ``"roc_auc"``, the only supported metric.
+    """
     if scoring != "roc_auc":
         raise ValueError(f"{MODEL_NAME} tuning only supports scoring='roc_auc', got {scoring!r}")
 
@@ -339,11 +435,13 @@ def tune_hyperparameters(
     base_kwargs = {k: v for k, v in default_params.items() if k in TRAIN_KWARGS}
     hidden_pairs = config.grid["hidden_pair"]
     learning_rates = config.grid["learning_rate"]
-    results = []
+    results: list[GridResult] = []
 
     logger.info(
         "[%s] Manual tuning: %d combos x %d folds",
-        MODEL_NAME, len(hidden_pairs) * len(learning_rates), cv.get_n_splits(),
+        MODEL_NAME,
+        len(hidden_pairs) * len(learning_rates),
+        cv.get_n_splits(),
     )
 
     for (h1, h2), lr in product(hidden_pairs, learning_rates):
@@ -353,24 +451,33 @@ def tune_hyperparameters(
             X_va_f, y_va_f = X_train[va_idx], y_train[va_idx]
 
             best_params, _ = train_mlp(
-                X_tr_f, y_tr_f, X_va_f, y_va_f,
+                X_tr_f,
+                y_tr_f,
+                X_va_f,
+                y_va_f,
                 **{**base_kwargs, "hidden_1": h1, "hidden_2": h2, "learning_rate": lr},
                 verbose=False,
             )
             y_proba = predict_proba(X_va_f, best_params)
             fold_aucs.append(float(roc_auc_score(y_va_f, y_proba)))
 
-        params_dict = {"hidden_1": h1, "hidden_2": h2, "learning_rate": lr}
         mean_auc = float(np.mean(fold_aucs))
-        std_auc  = float(np.std(fold_aucs))
-        results.append({
-            "params":      params_dict,
-            "mean_cv_auc": mean_auc,
-            "std_cv_auc":  std_auc,
-        })
+        std_auc = float(np.std(fold_aucs))
+        results.append(
+            {
+                "params": {"hidden_1": h1, "hidden_2": h2, "learning_rate": lr},
+                "mean_cv_auc": mean_auc,
+                "std_cv_auc": std_auc,
+            }
+        )
         logger.info(
             "[%s]   (H1=%s, H2=%s, lr=%s) -> CV AUC = %.4f ± %.4f",
-            MODEL_NAME, h1, h2, lr, mean_auc, std_auc,
+            MODEL_NAME,
+            h1,
+            h2,
+            lr,
+            mean_auc,
+            std_auc,
         )
 
     log_grid_results(MODEL_NAME, results, top_k=5)
@@ -379,40 +486,49 @@ def tune_hyperparameters(
 
 
 # ──────────────────────────────────────────────
-# 10. Wrapper público (contrato Fase 3)
+# 10. Public wrapper (contract shared by all models)
 # ──────────────────────────────────────────────
 
+
 def train_and_evaluate(
-    X_train: np.ndarray,
-    y_train: np.ndarray,
-    X_val:   np.ndarray,
-    y_val:   np.ndarray,
-    feature_cols: List[str],
-    params: Dict[str, Any],
+    X_train: FloatArray,
+    y_train: FloatArray,
+    X_val: FloatArray,
+    y_val: FloatArray,
+    feature_cols: list[str],
+    params: dict[str, Any],
     plots_dir: Path,
-) -> Dict:
-    """
-    Cumple el contrato común de Fase 3.
+) -> ModelResult:
+    """Train the MLP, evaluate it on train and validation and save its plots.
+
+    ``feature_cols`` is unused; it keeps the signature shared by all models.
+
+    Returns
+    -------
+    dict
+        Same keys as the sklearn models; ``model`` is
+        ``{"params": weights, "history": history, "config": params}``.
     """
     logger.info("[%s] Training with params: %s", MODEL_NAME, params)
 
-    # Filtrar solo los kwargs aceptados por train_mlp
     train_kwargs = {k: v for k, v in params.items() if k in TRAIN_KWARGS}
     best_params, history = train_mlp(X_train, y_train, X_val, y_val, **train_kwargs)
 
     y_proba_train = predict_proba(X_train, best_params)
-    y_proba_val   = predict_proba(X_val,   best_params)
-    y_pred_train  = (y_proba_train >= 0.5).astype(int)
-    y_pred_val    = (y_proba_val   >= 0.5).astype(int)
+    y_proba_val = predict_proba(X_val, best_params)
+    y_pred_train = (y_proba_train >= 0.5).astype(int)
+    y_pred_val = (y_proba_val >= 0.5).astype(int)
 
     metrics_train = compute_metrics(y_train, y_pred_train, y_proba_train)
-    metrics_val   = compute_metrics(y_val,   y_pred_val,   y_proba_val)
+    metrics_val = compute_metrics(y_val, y_pred_val, y_proba_val)
 
     log_full_metrics(metrics_train, "Train", MODEL_NAME)
-    log_full_metrics(metrics_val,   "Val",   MODEL_NAME)
+    log_full_metrics(metrics_val, "Val", MODEL_NAME)
     logger.info(
         "[%s] Epochs trained: %d | best val AUC: %.4f",
-        MODEL_NAME, len(history), max(h["val_auc"] for h in history),
+        MODEL_NAME,
+        len(history),
+        max(h["val_auc"] for h in history),
     )
 
     plot_confusion_matrix(y_val, y_pred_val, MODEL_NAME, plots_dir)
@@ -420,43 +536,39 @@ def train_and_evaluate(
     _plot_training_curves(history, plots_dir)
 
     return {
-        "model_name":    MODEL_NAME,
-        "model":         {"params": best_params, "history": history, "config": params},
+        "model_name": MODEL_NAME,
+        "model": {"params": best_params, "history": history, "config": params},
         "metrics_train": metrics_train,
-        "metrics_val":   metrics_val,
-        "y_pred_val":    y_pred_val,
-        "y_proba_val":   y_proba_val,
+        "metrics_val": metrics_val,
+        "y_pred_val": y_pred_val,
+        "y_proba_val": y_proba_val,
     }
 
 
-def _plot_training_curves(history: List[Dict], save_dir: Path) -> str:
-    """Guarda la evolución de train_loss / val_loss / val_auc por epoch."""
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    epochs   = [h["epoch"]      for h in history]
-    train_l  = [h["train_loss"] for h in history]
-    val_l    = [h["val_loss"]   for h in history]
-    val_aucs = [h["val_auc"]    for h in history]
+def _plot_training_curves(history: list[EpochRecord], save_dir: Path) -> Path:
+    """Save train/val loss and val AUC per epoch."""
+    epochs = [h["epoch"] for h in history]
+    train_l = [h["train_loss"] for h in history]
+    val_l = [h["val_loss"] for h in history]
+    val_aucs = [h["val_auc"] for h in history]
 
     fig, axes = plt.subplots(1, 2, figsize=(10, 4))
 
     axes[0].plot(epochs, train_l, label="train_loss")
-    axes[0].plot(epochs, val_l,   label="val_loss")
-    axes[0].set_xlabel("Epoch"); axes[0].set_ylabel("BCE loss")
-    axes[0].set_title("Curva de pérdida — MLP NumPy")
-    axes[0].legend(); axes[0].grid(alpha=0.3)
+    axes[0].plot(epochs, val_l, label="val_loss")
+    axes[0].set_xlabel("Epoch")
+    axes[0].set_ylabel("BCE loss")
+    axes[0].set_title("Loss curve — MLP NumPy")
+    axes[0].legend()
+    axes[0].grid(alpha=0.3)
 
     axes[1].plot(epochs, val_aucs, color="C2", label="val_auc")
-    axes[1].axhline(0.5, linestyle="--", color="gray", label="Aleatorio")
-    axes[1].set_xlabel("Epoch"); axes[1].set_ylabel("AUC val")
-    axes[1].set_title("AUC val por epoch")
-    axes[1].legend(); axes[1].grid(alpha=0.3)
+    axes[1].axhline(0.5, linestyle="--", color="gray", label="Random")
+    axes[1].set_xlabel("Epoch")
+    axes[1].set_ylabel("Val AUC")
+    axes[1].set_title("Validation AUC per epoch")
+    axes[1].legend()
+    axes[1].grid(alpha=0.3)
 
     fig.tight_layout()
-    os.makedirs(save_dir, exist_ok=True)
-    path = os.path.join(save_dir, "training_curves_mlp_numpy.png")
-    fig.savefig(path, dpi=120)
-    plt.close(fig)
-    return path
+    return save_figure(fig, save_dir, "training_curves_mlp_numpy.png")

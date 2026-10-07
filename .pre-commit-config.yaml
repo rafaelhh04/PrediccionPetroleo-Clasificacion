@@ -1,0 +1,44 @@
+# Install the git hook with `make install` (or `uv run pre-commit install`).
+# Run on the whole repo with `make lint` (`uv run pre-commit run --all-files`).
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  # Ruff, codespell and mypy run from the project environment (`uv run`), so
+  # their versions are the ones pinned in uv.lock: local runs, CI and the git
+  # hook can never disagree.
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run --frozen ruff check --fix --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --frozen ruff format --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+      - id: codespell
+        name: codespell
+        entry: uv run --frozen codespell
+        language: system
+        types: [text]
+      - id: mypy
+        name: mypy (strict, src/)
+        entry: uv run --frozen mypy
+        language: system
+        types: [python]
+        files: ^src/
+        pass_filenames: false

@@ -4,6 +4,7 @@ Library modules only create loggers with ``logging.getLogger(__name__)``;
 handlers are configured exclusively here, by the application (the CLI).
 """
 
+import contextlib
 import logging
 import sys
 from pathlib import Path
@@ -40,10 +41,8 @@ def setup_logging(level: str | int = "INFO", log_file: Path | None = None) -> No
     # characters such as "→" by replacing anything it cannot represent.
     stream = sys.stderr
     if hasattr(stream, "reconfigure"):
-        try:
+        with contextlib.suppress(OSError, ValueError):
             stream.reconfigure(encoding="utf-8", errors="replace")
-        except (OSError, ValueError):
-            pass
 
     handlers: list[logging.Handler] = []
     console = logging.StreamHandler(stream)

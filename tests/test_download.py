@@ -68,9 +68,7 @@ def test_download_copies_canonical_files_and_records_checksums(
     assert recorded[EVENTS_FILENAME] == sha256sum(data_dir / EVENTS_FILENAME)
 
 
-def test_download_is_idempotent_with_recorded_checksums(
-    tmp_path: Path, kaggle_cache: Path
-) -> None:
+def test_download_is_idempotent_with_recorded_checksums(tmp_path: Path, kaggle_cache: Path) -> None:
     data_dir = tmp_path / "raw"
     checksums = tmp_path / "checksums.json"
     download_dataset(data_dir, checksums, DATA, downloader=_fake_downloader(kaggle_cache))

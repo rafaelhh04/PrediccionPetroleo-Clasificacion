@@ -1,8 +1,9 @@
-"""Command-line interface for the Brent direction classifier."""
+"""Command-line interface for the Brent direction classifier (``brent``)."""
 
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Annotated
 
 import typer
 from pydantic import ValidationError
@@ -40,29 +41,39 @@ def _validate_log_level(value: str) -> str:
 @app.callback()
 def main(
     ctx: typer.Context,
-    config: Path = typer.Option(
-        DEFAULT_CONFIG_PATH,
-        "--config",
-        "-c",
-        help="YAML configuration file (values can be overridden with BRENT_* env vars).",
-    ),
-    log_level: str = typer.Option(
-        "INFO",
-        "--log-level",
-        "-l",
-        callback=_validate_log_level,
-        help=f"Logging level: {', '.join(LOG_LEVELS)}.",
-    ),
+    config: Annotated[
+        Path,
+        typer.Option(
+            "--config",
+            "-c",
+            help="YAML configuration file (values can be overridden with BRENT_* env vars).",
+        ),
+    ] = DEFAULT_CONFIG_PATH,
+    log_level: Annotated[
+        str,
+        typer.Option(
+            "--log-level",
+            "-l",
+            callback=_validate_log_level,
+            help=f"Logging level: {', '.join(LOG_LEVELS)}.",
+        ),
+    ] = "INFO",
 ) -> None:
     """Next-day Brent crude oil price direction classifier."""
     setup_logging(log_level)
     ctx.obj = _State(config_path=config, log_level=log_level)
 
 
+def _state(ctx: typer.Context) -> _State:
+    state = ctx.obj
+    assert isinstance(state, _State)
+    return state
+
+
 def _settings(ctx: typer.Context) -> Settings:
     """Load the settings for the config path stored by the root callback."""
     try:
-        return load_settings(ctx.obj.config_path)
+        return load_settings(_state(ctx).config_path)
     except (FileNotFoundError, ValidationError) as exc:
         typer.secho(f"Invalid configuration: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=2) from exc
@@ -74,7 +85,7 @@ def train(ctx: typer.Context) -> None:
     from brent_forecast.pipeline import run
 
     settings = _settings(ctx)
-    setup_logging(ctx.obj.log_level, log_file=settings.paths.log_file)
+    setup_logging(_state(ctx).log_level, log_file=settings.paths.log_file)
     run(settings)
     typer.echo(f"Log written to {settings.paths.log_file}")
 
@@ -88,10 +99,13 @@ def config_show(ctx: typer.Context) -> None:
 @data_app.command("download")
 def data_download(
     ctx: typer.Context,
-    force: bool = typer.Option(False, "--force", help="Ignore the kagglehub cache."),
-    update_checksums: bool = typer.Option(
-        False, "--update-checksums", help="Overwrite recorded digests with the downloaded ones."
-    ),
+    force: Annotated[bool, typer.Option("--force", help="Ignore the kagglehub cache.")] = False,
+    update_checksums: Annotated[
+        bool,
+        typer.Option(
+            "--update-checksums", help="Overwrite recorded digests with the downloaded ones."
+        ),
+    ] = False,
 ) -> None:
     """Download the Kaggle dataset into the data directory and verify checksums."""
     from brent_forecast.data.download import (

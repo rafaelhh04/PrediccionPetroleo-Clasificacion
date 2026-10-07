@@ -1,30 +1,21 @@
-"""
-Random Forest: ensemble de árboles de decisión con bagging.
+"""Random Forest: bagged ensemble of decision trees.
 
-A diferencia de SVM/LogReg, no requiere features escaladas (los árboles
-trabajan con thresholds univariantes). Aun así se usa el mismo X_train_sc
-escalado que los demás modelos para mantener la comparabilidad estricta.
-
-Fase 5: añadida `tune_hyperparameters` con TimeSeriesSplit + GridSearchCV
-sobre n_estimators, max_depth y min_samples_leaf.
+Trees do not need scaled features, but the same scaled ``X_train`` as the
+other models is used to keep the comparison strict.
 """
 
 import logging
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import TimeSeriesSplit
 
-from brent_forecast.evaluation.metrics import (
-    compute_metrics,
-    log_full_metrics,
-    plot_confusion_matrix,
-    plot_roc_curve,
-)
+from brent_forecast._types import FloatArray, ModelResult
 from brent_forecast.config import ModelSettings
-from brent_forecast.models.tuning import log_grid_results
+from brent_forecast.models.base import fit_and_evaluate
+from brent_forecast.models.tuning import grid_search
 
 logger = logging.getLogger(__name__)
 
@@ -32,79 +23,56 @@ MODEL_NAME = "Random Forest"
 
 
 def tune_hyperparameters(
-    X_train: np.ndarray,
-    y_train: np.ndarray,
-    cv,
+    X_train: FloatArray,
+    y_train: FloatArray,
+    cv: TimeSeriesSplit,
     config: ModelSettings,
     scoring: str,
     seed: int,
-) -> Dict[str, Any]:
-    """Grid search con TimeSeriesSplit. 18 combos × 5 folds = 90 fits."""
+) -> dict[str, Any]:
+    """Grid-search ``config.grid`` with time-series CV.
+
+    The outer search runs with ``n_jobs=1`` to avoid nesting parallelism with
+    the forest's own ``n_jobs=-1`` (oversubscription).
+
+    Returns
+    -------
+    dict
+        Full hyperparameters: ``config.params`` + ``random_state`` + best grid values.
+    """
     default_params = {**config.params, "random_state": seed}
-    # n_jobs=1 en el GridSearchCV externo para no anidar paralelismo con n_jobs=-1
-    # del RF interno (joblib gestiona, pero explicitar evita oversubscription).
-    base = RandomForestClassifier(**default_params)
-    grid = GridSearchCV(base, config.grid, cv=cv, scoring=scoring, n_jobs=1, refit=False)
-    grid.fit(X_train, y_train)
-
-    results = [
-        {
-            "params":      grid.cv_results_["params"][i],
-            "mean_cv_auc": float(grid.cv_results_["mean_test_score"][i]),
-            "std_cv_auc":  float(grid.cv_results_["std_test_score"][i]),
-        }
-        for i in range(len(grid.cv_results_["params"]))
-    ]
-    log_grid_results(MODEL_NAME, results, top_k=5)
-
-    return {**default_params, **grid.best_params_}
+    best = grid_search(
+        RandomForestClassifier(**default_params),
+        config.grid,
+        X_train,
+        y_train,
+        cv=cv,
+        scoring=scoring,
+        n_jobs=1,
+        model_name=MODEL_NAME,
+    )
+    return {**default_params, **best}
 
 
 def train_and_evaluate(
-    X_train: np.ndarray,
-    y_train: np.ndarray,
-    X_val:   np.ndarray,
-    y_val:   np.ndarray,
-    feature_cols: list,
-    params: Dict[str, Any],
+    X_train: FloatArray,
+    y_train: FloatArray,
+    X_val: FloatArray,
+    y_val: FloatArray,
+    feature_cols: list[str],
+    params: dict[str, Any],
     plots_dir: Path,
-) -> dict:
-    """
-    Entrena Random Forest.
-    """
+) -> ModelResult:
+    """Train on train, evaluate on validation and log the top feature importances."""
     logger.info("[%s] Training with params: %s", MODEL_NAME, params)
-
     model = RandomForestClassifier(**params)
-    model.fit(X_train, y_train)
-
-    y_pred_train  = model.predict(X_train)
-    y_pred_val    = model.predict(X_val)
-    y_proba_train = model.predict_proba(X_train)[:, 1]
-    y_proba_val   = model.predict_proba(X_val)[:, 1]
-
-    metrics_train = compute_metrics(y_train, y_pred_train, y_proba_train)
-    metrics_val   = compute_metrics(y_val,   y_pred_val,   y_proba_val)
-
-    log_full_metrics(metrics_train, "Train", MODEL_NAME)
-    log_full_metrics(metrics_val,   "Val",   MODEL_NAME)
-
-    plot_confusion_matrix(y_val, y_pred_val, MODEL_NAME, plots_dir)
-    plot_roc_curve(y_val, y_proba_val, MODEL_NAME, plots_dir)
-
-    _print_top_features(model, feature_cols, top_k=5)
-
-    return {
-        "model_name":    MODEL_NAME,
-        "model":         model,
-        "metrics_train": metrics_train,
-        "metrics_val":   metrics_val,
-        "y_pred_val":    y_pred_val,
-        "y_proba_val":   y_proba_val,
-    }
+    result = fit_and_evaluate(model, MODEL_NAME, X_train, y_train, X_val, y_val, plots_dir)
+    _log_top_features(model, feature_cols, top_k=5)
+    return result
 
 
-def _print_top_features(model: RandomForestClassifier, feature_cols: list, top_k: int = 5) -> None:
-    """Registra las features con mayor importancia (mean decrease in impurity)."""
+def _log_top_features(model: RandomForestClassifier, feature_cols: list[str], top_k: int) -> None:
+    """Log the features with the highest importance (mean decrease in impurity)."""
     importances = model.feature_importances_
     order = np.argsort(importances)[::-1]
     lines = [f"    {feature_cols[i]:<25} importance = {importances[i]:.4f}" for i in order[:top_k]]

@@ -33,7 +33,7 @@ PROYECTOML/
 │
 ├── models/
 │   ├── logistic_regression.py     # Modelo baseline (sklearn)
-│   ├── neural_network.py          # MLP implementado con NumPy puro 
+│   ├── neural_network.py          # MLP implementado con NumPy puro
 │   ├── svm_model.py               # SVM con kernel RBF (sklearn)
 │   └── random_forest.py           # Random Forest (sklearn)
 │
