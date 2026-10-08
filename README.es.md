@@ -88,6 +88,8 @@ resuelta.
 | SVM (kernel RBF, probabilidades calibradas) | scikit-learn |
 | Random Forest | scikit-learn |
 | **MLP 64 → 32 → 1** | **núcleo NumPy puro**, API de estimador scikit-learn |
+Baselines evaluados con el mismo walk-forward: clase mayoritaria, persistencia (mañana = hoy), aleatorio
+estratificado y buy & hold (siempre sube).
 
 ## Resultados (AUC-ROC)
 

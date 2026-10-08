@@ -236,7 +236,8 @@ def test_pipeline_tunes_on_development_rows_and_evaluates_out_of_sample_by_walk_
     pipeline.run(fast_settings)
 
     dev, test = splits["dev"], splits["test"]
-    assert len(seen["tune"]) == len(seen["curves"]) == len(seen["walk"]) == 4
+    assert len(seen["tune"]) == len(seen["curves"]) == 4  # models only
+    assert len(seen["walk"]) == 8  # models and baselines share the walk-forward
     for args in seen["tune"]:  # grid_search(estimator, grid, X, y, ...)
         assert args[2].index.equals(dev)
         assert args[2].index.intersection(test).empty

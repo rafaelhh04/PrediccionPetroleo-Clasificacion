@@ -10,6 +10,8 @@ Protocol:
    evaluation. Before each window of ``validation.test_window`` days the model
    is refitted on all older data minus the purge/embargo gap (expanding or
    rolling) and then predicts that window.
+   The naive baselines (majority class, persistence, stratified random,
+   buy & hold) go through exactly the same walk-forward.
 4. Persist the out-of-sample predictions and metrics, figures, and every
    pipeline refitted on all available data (the model one would deploy).
 
@@ -23,6 +25,7 @@ from typing import Any
 
 import joblib
 import numpy as np
+from sklearn.model_selection import cross_val_score
 
 from brent_forecast.config import Settings
 from brent_forecast.data.load import DateBounds, load_oil_data
@@ -37,6 +40,7 @@ from brent_forecast.evaluation.oos import (
 )
 from brent_forecast.features.preprocessing import build_dataset, split_by_date
 from brent_forecast.models.base import log_top_features
+from brent_forecast.models.baselines import BASELINE_NAMES, build_baseline
 from brent_forecast.models.registry import (
     MODEL_NAMES,
     build_pipeline,
@@ -110,26 +114,37 @@ def run(settings: Settings) -> None:
     n_windows = eval_cv.get_n_splits(X_all)
     logger.info("[3/5] Walk-forward evaluation: %d windows with %r", n_windows, eval_cv)
     oos = parts.test[["date", "label"]].copy()
+    oos["window"] = 0
+    candidates: dict[str, tuple[str, str, Any]] = {
+        key: (name, "model", build_pipeline(key, best_params[key], settings.preprocessing))
+        for key, name in MODEL_NAMES.items()
+    }
+    for key, name in BASELINE_NAMES.items():
+        baseline = build_baseline(key, settings.seed)
+        scores = cross_val_score(baseline, X_dev, y_dev, cv=tuning_cv, scoring=val.scoring)
+        cv_scores[name] = {"auc_mean": float(scores.mean()), "auc_std": float(scores.std())}
+        candidates[key] = (name, "baseline", baseline)
+
     summary: dict[str, dict[str, Any]] = {}
-    for key, name in MODEL_NAMES.items():
-        preds = walk_forward_predict(
-            build_pipeline(key, best_params[key], settings.preprocessing), X_all, y_all, eval_cv
-        )
+    for key, (name, kind, estimator) in candidates.items():
+        preds = walk_forward_predict(estimator, X_all, y_all, eval_cv)
         oos["window"] = preds.window
         oos[f"proba_{key}"] = preds.proba
         metrics = oos_metrics(oos["label"], preds.proba)
         log_full_metrics(metrics, "Out-of-sample", name)
-        plot_confusion_matrix(
-            oos["label"], (preds.proba >= 0.5).astype(int), f"{name} (oos)", paths.plots_dir
-        )
+        if kind == "model":
+            plot_confusion_matrix(
+                oos["label"], (preds.proba >= 0.5).astype(int), f"{name} (oos)", paths.plots_dir
+            )
         summary[name] = {
+            "kind": kind,
             "cv": cv_scores[name],
             "oos": metrics,
             "windows": window_metrics(oos["date"], oos["label"], preds.proba, preds.window),
         }
 
     log_oos_summary(summary)
-    probas = {name: oos[f"proba_{key}"] for key, name in MODEL_NAMES.items()}
+    probas = {name: oos[f"proba_{key}"] for key, (name, _, _) in candidates.items()}
     plot_roc_oos(oos["label"], probas, paths.plots_dir)
     plot_window_auc({name: m["windows"] for name, m in summary.items()}, paths.plots_dir)
 
@@ -164,9 +179,18 @@ def run(settings: Settings) -> None:
         paths.metrics_file,
         paths.models_dir,
     )
-    top = max(summary, key=lambda n: summary[n]["oos"]["auc_roc"])
+
+    def best_of(kind: str) -> str:
+        names = [n for n, m in summary.items() if m["kind"] == kind]
+        return max(names, key=lambda n: summary[n]["oos"]["auc_roc"])
+
+    top_model, top_baseline = best_of("model"), best_of("baseline")
     logger.info(
-        "Done. Best model by out-of-sample AUC: %s (%.4f)", top, summary[top]["oos"]["auc_roc"]
+        "Done. Best out-of-sample AUC — model: %s (%.4f) | baseline: %s (%.4f)",
+        top_model,
+        summary[top_model]["oos"]["auc_roc"],
+        top_baseline,
+        summary[top_baseline]["oos"]["auc_roc"],
     )
 
 
