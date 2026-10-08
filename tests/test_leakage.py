@@ -254,6 +254,7 @@ def test_pipeline_tunes_on_development_rows_and_evaluates_out_of_sample_by_walk_
 
     monkeypatch.setattr(pipeline, "split_by_date", spy_split)
     monkeypatch.setattr(pipeline, "grid_search", spy("tune", pipeline.grid_search))
+    monkeypatch.setattr(pipeline, "optuna_search", spy("tune", pipeline.optuna_search))
     monkeypatch.setattr(pipeline, "plot_learning_curve", spy("curves", lambda *a, **k: None))
     monkeypatch.setattr(
         pipeline, "walk_forward_predict", spy("walk", pipeline.walk_forward_predict)
@@ -262,9 +263,9 @@ def test_pipeline_tunes_on_development_rows_and_evaluates_out_of_sample_by_walk_
     pipeline.run(fast_settings)
 
     dev, test = splits["dev"], splits["test"]
-    assert len(seen["tune"]) == len(seen["curves"]) == 4  # models only
-    assert len(seen["walk"]) == 8  # models and baselines share the walk-forward
-    for args in seen["tune"]:  # grid_search(estimator, grid, X, y, ...)
+    assert len(seen["tune"]) == len(seen["curves"]) == 5  # models only
+    assert len(seen["walk"]) == 9  # models and baselines share the walk-forward
+    for args in seen["tune"]:  # grid_search / optuna_search(estimator, space, X, y, ...)
         assert args[2].index.equals(dev)
         assert args[2].index.intersection(test).empty
     for args in seen["curves"]:  # plot_learning_curve(estimator, X, y, ...)
