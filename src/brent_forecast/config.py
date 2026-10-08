@@ -150,11 +150,51 @@ class BacktestSettings(_Section):
     periods_per_year: int = Field(ge=1)
 
 
+class SearchSpace(_Section):
+    """Optuna distribution of one hyperparameter."""
+
+    type: Literal["int", "float", "categorical"]
+    low: float | None = None
+    high: float | None = None
+    log: bool = False
+    choices: list[Any] | None = None
+
+    @model_validator(mode="after")
+    def _check_distribution(self) -> Self:
+        if self.type == "categorical":
+            if not self.choices:
+                raise ValueError("a categorical search space needs non-empty `choices`")
+        elif self.low is None or self.high is None or self.low >= self.high:
+            raise ValueError(f"a {self.type} search space needs `low` < `high`")
+        elif self.log and self.low <= 0:
+            raise ValueError("a log-scale search space needs `low` > 0")
+        return self
+
+
 class ModelSettings(_Section):
-    """Fixed hyperparameters and search grid of one model."""
+    """Fixed hyperparameters and search space of one model.
+
+    ``grid`` (exhaustive ``GridSearchCV``) or ``space`` (Optuna TPE), never both.
+    """
 
     params: dict[str, Any]
-    grid: dict[str, list[Any]]
+    grid: dict[str, list[Any]] = Field(default_factory=dict)
+    space: dict[str, SearchSpace] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _check_search(self) -> Self:
+        if bool(self.grid) == bool(self.space):
+            raise ValueError("define exactly one of `grid` (grid search) or `space` (Optuna)")
+        return self
+
+
+class TuningSettings(_Section):
+    """Optuna study used for models that declare a ``space``."""
+
+    n_trials: int = Field(ge=1)
+    timeout: PositiveFloat | None
+    pruning: bool
+    startup_trials: int = Field(ge=1)
 
 
 class ModelsSettings(_Section):
@@ -164,6 +204,7 @@ class ModelsSettings(_Section):
     svm: ModelSettings
     random_forest: ModelSettings
     mlp: ModelSettings
+    lightgbm: ModelSettings
 
 
 class Settings(BaseSettings):
@@ -184,6 +225,7 @@ class Settings(BaseSettings):
     validation: ValidationSettings
     evaluation: EvaluationSettings
     backtest: BacktestSettings
+    tuning: TuningSettings
     models: ModelsSettings
 
     @classmethod

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from brent_forecast.config import load_settings
+from brent_forecast.config import ModelSettings, SearchSpace, load_settings
 from conftest import CONFIG_PATH
 
 
@@ -94,3 +94,35 @@ def test_models_dir_lives_under_results() -> None:
     settings = load_settings(CONFIG_PATH)
 
     assert settings.paths.models_dir == settings.paths.results_dir / "models"
+
+
+@pytest.mark.parametrize(
+    ("space", "message"),
+    [
+        ({"type": "int", "low": 5, "high": 5}, "low` < `high"),
+        ({"type": "float", "low": 1.0}, "low` < `high"),
+        ({"type": "float", "low": 0.0, "high": 1.0, "log": True}, "low` > 0"),
+        ({"type": "categorical"}, "choices"),
+    ],
+)
+def test_invalid_search_spaces_are_rejected(space: dict, message: str) -> None:
+    with pytest.raises(ValidationError, match=message):
+        SearchSpace(**space)
+
+
+def test_a_model_needs_exactly_one_search_definition() -> None:
+    space = {"C": SearchSpace(type="float", low=0.1, high=1.0)}
+
+    with pytest.raises(ValidationError, match="exactly one"):
+        ModelSettings(params={}, grid={"C": [1.0]}, space=space)
+    with pytest.raises(ValidationError, match="exactly one"):
+        ModelSettings(params={})
+    assert ModelSettings(params={}, space=space).grid == {}
+
+
+def test_lightgbm_is_tuned_with_optuna() -> None:
+    settings = load_settings(CONFIG_PATH)
+
+    assert settings.models.lightgbm.space
+    assert not settings.models.lightgbm.grid
+    assert settings.tuning.timeout is None  # reproducible by default
