@@ -41,9 +41,11 @@ Outputs are written to `results/` (ignored by git):
 
 | Path | Content |
 |------|---------|
-| `results/metrics.json` | Train / validation / test metrics of every model |
+| `results/metrics.json` | Evaluation protocol, development-CV AUC, out-of-sample metrics and per-window metrics of every model |
+| `results/predictions.csv` | Out-of-sample probability of every model for every test day (with its walk-forward window) |
+| `results/models/*.joblib` | Every pipeline refitted on all available data |
 | `results/run.log` | Full log of the run |
-| `results/plots/` | ROC curves, confusion matrices, learning curves, MLP training curves |
+| `results/plots/` | Out-of-sample ROC, AUC per window, confusion matrices, learning curves, MLP training curves |
 
 ### Data
 
@@ -90,7 +92,7 @@ with pydantic-settings. Any field can be overridden with a `BRENT_`-prefixed env
 `__` for nesting:
 
 ```bash
-BRENT_SEED=7 BRENT_SPLIT__TRAIN_END=2021-01-01 uv run brent train
+BRENT_SEED=7 BRENT_VALIDATION__MODE=rolling uv run brent train
 BRENT_MODELS__RANDOM_FOREST__GRID='{"max_depth": [5, 10]}' uv run brent config show
 uv run brent --config configs/my_experiment.yaml train
 ```
@@ -103,20 +105,25 @@ Precedence: explicit arguments > environment variables > YAML file.
 
 ```text
 load + left-join events ─► label (t+1) ─► feature engineering (past-only) ─► drop warm-up rows
-   ─► chronological split ─► per model, a scikit-learn Pipeline:
+   ─► per model, a scikit-learn Pipeline:
         VIFSelector ─► Winsorizer (return features, 1–99 %) ─► StandardScaler ─► model
-   ─► grid search with TimeSeriesSplit(5) on train ─► fit ─► validation ─► single pass on test
+   ─► development period (< 2024-01-01): grid search with purged walk-forward CV (5 folds)
+   ─► out-of-sample period (≥ 2024-01-01): walk-forward, refit every 63 trading days on all older data
 ```
 
-- **Chronological split:** train `< 2022-01-01`, validation `2022–2023`, test `≥ 2024-01-01`.
+- **Purged walk-forward validation** (`validation/walk_forward.py`): every model is trained only on rows
+  strictly older than its test window, with a gap of `purge` (1 day: day *t*'s label is realised on *t+1*,
+  López de Prado) + `embargo` (5 days of buffer, since features use rolling windows). Expanding window by
+  default, rolling with `validation.mode: rolling`. The same splitter drives tuning, learning curves and the
+  out-of-sample evaluation.
 - **Leakage controls:** same-day `wti_return` removed; VIF selection, winsorisation percentiles and scaler are
-  steps of each model `Pipeline`, so they are fitted on training rows only, and refitted inside every CV
-  fold; tuning uses expanding-window `TimeSeriesSplit` on train only; the test set is evaluated exactly once.
-  Every fitted pipeline is saved to `results/models/<model>.joblib`.
+  steps of each model `Pipeline`, refitted on the training rows of every fold and window; tests prove that
+  corrupting the future never changes earlier features, training labels or predictions.
 - **Features:** log returns over 1/3/7 days, 30-day volatility and 7/30 volatility ratio, Brent–WTI spread,
   21-day change of the geopolitical risk index, high-severity event flag, day of week and month
   (on the real data 10 features survived the VIF > 10 filter).
-- **Metrics:** accuracy, macro precision / recall / F1 and ROC AUC (primary, used for model selection).
+- **Metrics:** accuracy, macro precision / recall / F1 and ROC AUC (primary, used for model selection),
+  over the pooled out-of-sample predictions and per walk-forward window (stability over time).
 
 ### Models
 

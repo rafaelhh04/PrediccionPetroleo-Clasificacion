@@ -64,19 +64,22 @@ y ejecuta `uv run brent data verify`. Si `configs/data_checksums.json` aún no t
 Todos los valores ajustables (rutas, semilla, fechas de split, folds de CV, umbrales de VIF y winsorización,
 hiperparámetros y grids) están en [`configs/default.yaml`](configs/default.yaml) y se pueden sobrescribir con
 variables de entorno `BRENT_*` (`__` como separador de anidamiento), p. ej.
-`BRENT_SPLIT__TRAIN_END=2021-01-01 uv run brent train`. `uv run brent config show` muestra la configuración
+`BRENT_VALIDATION__MODE=rolling uv run brent train`. `uv run brent config show` muestra la configuración
 resuelta.
 
 ---
 
 ## Metodología
 
-- **División temporal estricta:** train `< 2022-01-01`, validación `2022–2023`, test `≥ 2024-01-01`.
+- **Validación walk-forward con purga y embargo:** periodo de desarrollo `< 2024-01-01` para ajustar
+  hiperparámetros (CV walk-forward de 5 folds) y periodo fuera de muestra `≥ 2024-01-01` evaluado por
+  walk-forward, reentrenando cada 63 sesiones con todos los datos anteriores. Entre train y test hay un hueco
+  de `purge` (1 día: la etiqueta de *t* se realiza en *t+1*) + `embargo` (5 días).
 - **Control de leakage:** se elimina `wti_return` (mismo día); el filtro VIF, los percentiles de
-  winsorización y el `StandardScaler` son pasos del `Pipeline` de cada modelo, así que se ajustan solo con
-  train (y de nuevo en cada fold de CV); cada pipeline ajustado se guarda en `results/models/`; el tuning usa `TimeSeriesSplit` (5 folds,
-  ventana expansiva) solo sobre train; el test se evalúa una única vez.
-- **Búsqueda de hiperparámetros:** `GridSearchCV` para los modelos sklearn y búsqueda manual para la MLP.
+  winsorización y el `StandardScaler` son pasos del `Pipeline` de cada modelo y se reajustan en cada fold y
+  ventana; los tests prueban que corromper el futuro no cambia features, etiquetas de train ni predicciones
+  anteriores. Cada pipeline final se guarda en `results/models/`.
+- **Búsqueda de hiperparámetros:** `GridSearchCV` (también para la MLP, ahora estimador de sklearn).
 - **Métricas:** accuracy, precision / recall / F1 macro y AUC-ROC (métrica principal).
 
 | Modelo | Implementación |
