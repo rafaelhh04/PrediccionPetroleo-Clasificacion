@@ -5,7 +5,7 @@ Execution order (it matters):
 1. ``create_label``       -> label created BEFORE any filtering
 2. ``engineer_features``  -> past-only transformations and feature list
 3. ``handle_nulls``       -> drop warm-up rows with null features
-4. ``split_temporal``     -> chronological train/val/test split
+4. ``split_by_date``      -> development / out-of-sample split
 
 Nothing here learns from the data. The fitted steps (VIF selection,
 winsorisation, scaling) live in the model pipelines
@@ -196,7 +196,7 @@ def handle_nulls(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame:
 
 
 # ──────────────────────────────────────────────
-# 4. Dataset assembly and chronological split
+# 4. Dataset assembly and development / out-of-sample split
 # ──────────────────────────────────────────────
 
 
@@ -239,37 +239,31 @@ def build_dataset(df: pd.DataFrame) -> Dataset:
 
 
 class Split(NamedTuple):
-    """Chronological train / validation / test partition of a :class:`Dataset`."""
+    """Chronological partition of a :class:`Dataset` frame."""
 
-    train: pd.DataFrame
-    val: pd.DataFrame
+    dev: pd.DataFrame
+    """Development period (``date < test_start``): hyperparameter tuning."""
     test: pd.DataFrame
+    """Out-of-sample period (``date >= test_start``): walk-forward evaluation."""
 
 
-def split_temporal(frame: pd.DataFrame, split: SplitSettings) -> Split:
-    """Split the dataset in strict chronological order.
-
-    - Train: ``date < train_end`` (2010-2021 by default)
-    - Validation: ``train_end <= date < val_end`` (2022-2023 by default)
-    - Test: ``date >= val_end`` (2024-2026 by default)
-    """
-    train_end = pd.Timestamp(split.train_end)
-    val_end = pd.Timestamp(split.val_end)
-    dates = frame["date"]
-    parts = Split(
-        train=frame[dates < train_end],
-        val=frame[(dates >= train_end) & (dates < val_end)],
-        test=frame[dates >= val_end],
-    )
+def split_by_date(frame: pd.DataFrame, split: SplitSettings) -> Split:
+    """Split the dataset at ``split.test_start`` (rows stay in chronological order)."""
+    test_start = pd.Timestamp(split.test_start)
+    is_test = frame["date"] >= test_start
+    parts = Split(dev=frame[~is_test], test=frame[is_test])
     logger.info(
-        "Split sizes | train: %d | val: %d | test: %d",
-        len(parts.train),
-        len(parts.val),
+        "Development rows: %d (%s -> %s) | out-of-sample rows: %d (%s -> %s)",
+        len(parts.dev),
+        parts.dev["date"].min().date(),
+        parts.dev["date"].max().date(),
         len(parts.test),
+        parts.test["date"].min().date(),
+        parts.test["date"].max().date(),
     )
     logger.info(
-        "Train class balance | class 1: %.2f%% | class 0: %.2f%%",
-        parts.train["label"].mean() * 100,
-        (1 - parts.train["label"].mean()) * 100,
+        "Development class balance | class 1: %.2f%% | class 0: %.2f%%",
+        parts.dev["label"].mean() * 100,
+        (1 - parts.dev["label"].mean()) * 100,
     )
     return parts

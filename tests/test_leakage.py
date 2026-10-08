@@ -6,11 +6,12 @@ Three families:
    percentiles, scaler) depends on training rows only.
 2. Future permutation: rewriting every row after a cut-off never changes the
    features of rows up to the cut-off, and a label only depends on the next day.
-3. The pipeline never feeds the test set to tuning or training.
+3. The pipeline tunes on the development period only and evaluates the
+   out-of-sample period with purged walk-forward windows.
 
-Known, accepted boundary effect: the label of the last training day is the
-direction of the first validation day (no purge/embargo gap yet; planned for
-the walk-forward phase). Tests exclude that single label explicitly.
+The purge removes the last training day before every test window: its label is
+the direction of the first test day. Thanks to it, corrupting the future does
+not change a single training label either (no boundary exception needed).
 """
 
 from typing import Any
@@ -26,14 +27,16 @@ from brent_forecast.features.preprocessing import (
     create_label,
     engineer_features,
     handle_nulls,
-    split_temporal,
+    split_by_date,
 )
 from brent_forecast.features.transformers import VIFSelector, Winsorizer
 from brent_forecast.models.registry import build_pipeline
+from brent_forecast.validation.walk_forward import PurgedWalkForwardSplit
 
-SPLIT = SplitSettings(train_end="2022-01-01", val_end="2024-01-01")
+SPLIT = SplitSettings(test_start="2024-01-01")
+PURGE, EMBARGO = 1, 5
 PREP = PreprocessingSettings(vif_threshold=10.0, winsor_lower=0.01, winsor_upper=0.99)
-TRAIN_END = pd.Timestamp("2022-01-01")
+TEST_START = pd.Timestamp("2024-01-01")
 NUMERIC_RAW = [
     "brent_price",
     "wti_price",
@@ -74,32 +77,53 @@ def _corrupt_after(df: pd.DataFrame, cutoff: pd.Timestamp, seed: int = 0) -> pd.
 # ── 1. fitted preprocessing state depends on train only ───────
 
 
-def _fitted_preprocessing(frame: pd.DataFrame) -> tuple[Any, pd.DataFrame]:
-    """Fit the preprocessing part of a model pipeline on the training rows of ``frame``."""
+def _first_window_training_rows(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
+    """Training rows of the first walk-forward window over the out-of-sample period."""
     dataset = build_dataset(frame)
-    train = split_temporal(dataset.frame, SPLIT).train
-    prep = build_pipeline("logistic_regression", {}, PREP)[:-1]
-    X_train = train[dataset.feature_cols]
-    return prep.fit(X_train), X_train
+    n_dev = len(split_by_date(dataset.frame, SPLIT).dev)
+    cv = PurgedWalkForwardSplit(
+        None, test_size=63, first_test_index=n_dev, purge=PURGE, embargo=EMBARGO
+    )
+    train_idx, _ = next(cv.split(dataset.features))
+    return dataset.features.iloc[train_idx], dataset.target.iloc[train_idx]
 
 
-def test_fitted_preprocessing_ignores_val_and_test_values(merged_frame: pd.DataFrame) -> None:
-    last_train_day = merged_frame.loc[merged_frame["date"] < TRAIN_END, "date"].max()
-    corrupted = _corrupt_after(merged_frame, last_train_day)
+def test_first_window_training_data_ignores_out_of_sample_values(
+    merged_frame: pd.DataFrame,
+) -> None:
+    last_dev_day = merged_frame.loc[merged_frame["date"] < TEST_START, "date"].max()
+    corrupted = _corrupt_after(merged_frame, last_dev_day)  # returns and labels included
 
-    clean, X_clean = _fitted_preprocessing(merged_frame.copy())
-    dirty, X_dirty = _fitted_preprocessing(corrupted)
+    X_clean, y_clean = _first_window_training_rows(merged_frame.copy())
+    X_dirty, y_dirty = _first_window_training_rows(corrupted)
 
-    pd.testing.assert_frame_equal(X_dirty, X_clean)  # the training features themselves
-    vif, vif_d = clean.named_steps["vif"], dirty.named_steps["vif"]
+    pd.testing.assert_frame_equal(X_dirty, X_clean)
+    pd.testing.assert_series_equal(y_dirty, y_clean)  # every label, thanks to the purge
+
+    prep, prep_d = (
+        build_pipeline("logistic_regression", {}, PREP)[:-1].fit(X) for X in (X_clean, X_dirty)
+    )
+    vif, vif_d = prep.named_steps["vif"], prep_d.named_steps["vif"]
     np.testing.assert_array_equal(vif_d.support_, vif.support_)  # VIF selection
-    win, win_d = clean.named_steps["winsor"], dirty.named_steps["winsor"]
+    win, win_d = prep.named_steps["winsor"], prep_d.named_steps["winsor"]
     np.testing.assert_array_equal(win_d.lower_bounds_, win.lower_bounds_)  # winsorisation
     np.testing.assert_array_equal(win_d.upper_bounds_, win.upper_bounds_)
-    sc, sc_d = clean.named_steps["scale"], dirty.named_steps["scale"]
+    sc, sc_d = prep.named_steps["scale"], prep_d.named_steps["scale"]
     np.testing.assert_array_equal(sc_d.mean_, sc.mean_)  # scaler
     np.testing.assert_array_equal(sc_d.scale_, sc.scale_)
-    pd.testing.assert_frame_equal(dirty.transform(X_dirty), clean.transform(X_clean))
+
+
+def test_without_purge_the_last_training_label_would_leak(merged_frame: pd.DataFrame) -> None:
+    """Control: the label of the last development day is realised on the first test day."""
+    flipped = merged_frame.copy()
+    first_test_row = flipped.index[flipped["date"] >= TEST_START][0]
+    flipped.loc[first_test_row, "brent_return"] *= -1
+
+    dev_clean = split_by_date(build_dataset(merged_frame.copy()).frame, SPLIT).dev
+    dev_flipped = split_by_date(build_dataset(flipped).frame, SPLIT).dev
+
+    changed = dev_clean["label"] != dev_flipped["label"]
+    assert changed.tolist() == [False] * (len(changed) - 1) + [True]
 
 
 def test_vif_selection_ignores_non_training_rows() -> None:
@@ -184,15 +208,15 @@ def test_no_same_day_or_target_columns_in_features(merged_frame: pd.DataFrame) -
 # ── 3. the pipeline never feeds the test set to tuning/training ──
 
 
-def test_pipeline_keeps_x_test_out_of_tuning_and_training(
+def test_pipeline_tunes_on_development_rows_and_evaluates_out_of_sample_by_walk_forward(
     fast_settings: Settings, small_raw_data_dir: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seen: dict[str, list[tuple[Any, ...]]] = {"tune": [], "train": [], "curves": [], "final": []}
+    seen: dict[str, list[tuple[Any, ...]]] = {"tune": [], "curves": [], "walk": []}
     splits: dict[str, Any] = {}
 
     def spy_split(*args: Any, **kwargs: Any) -> Any:
-        parts = split_temporal(*args, **kwargs)
-        splits.update(train=parts.train.index, val=parts.val.index, test=parts.test.index)
+        parts = split_by_date(*args, **kwargs)
+        splits.update(dev=parts.dev.index, test=parts.test.index)
         return parts
 
     def spy(kind: str, fn: Any) -> Any:
@@ -202,26 +226,30 @@ def test_pipeline_keeps_x_test_out_of_tuning_and_training(
 
         return wrapper
 
-    monkeypatch.setattr(pipeline, "split_temporal", spy_split)
+    monkeypatch.setattr(pipeline, "split_by_date", spy_split)
     monkeypatch.setattr(pipeline, "grid_search", spy("tune", pipeline.grid_search))
-    monkeypatch.setattr(pipeline, "fit_and_evaluate", spy("train", pipeline.fit_and_evaluate))
     monkeypatch.setattr(pipeline, "plot_learning_curve", spy("curves", lambda *a, **k: None))
-    monkeypatch.setattr(pipeline, "evaluate_on_test", spy("final", pipeline.evaluate_on_test))
+    monkeypatch.setattr(
+        pipeline, "walk_forward_predict", spy("walk", pipeline.walk_forward_predict)
+    )
 
     pipeline.run(fast_settings)
 
-    def rows(kind: str, position: int) -> list[pd.Index]:
-        return [args[position].index for args in seen[kind]]
+    dev, test = splits["dev"], splits["test"]
+    assert len(seen["tune"]) == len(seen["curves"]) == len(seen["walk"]) == 4
+    for args in seen["tune"]:  # grid_search(estimator, grid, X, y, ...)
+        assert args[2].index.equals(dev)
+        assert args[2].index.intersection(test).empty
+    for args in seen["curves"]:  # plot_learning_curve(estimator, X, y, ...)
+        assert args[1].index.equals(dev)
+    val = fast_settings.validation
+    for args in seen["walk"]:  # walk_forward_predict(estimator, X_all, y_all, cv)
+        cv = args[3]
+        assert cv.first_test_index == len(dev)
+        assert (cv.purge, cv.embargo) == (val.purge, val.embargo)
+        for train_idx, test_idx in cv.split(args[1]):
+            assert train_idx.max() + cv.gap < test_idx.min()
 
-    train, val, test = splits["train"], splits["val"], splits["test"]
-    assert len(seen["tune"]) == len(seen["train"]) == len(seen["curves"]) == 4
-    assert all(idx.equals(train) for idx in rows("tune", 2))  # grid_search(est, grid, X, y)
-    assert all(idx.equals(train) for idx in rows("train", 2))  # fit_and_evaluate(..., X_tr, ...)
-    assert all(idx.equals(val) for idx in rows("train", 4))  # ..., X_val, ...)
-    assert all(idx.equals(train) for idx in rows("curves", 1))  # plot_learning_curve(est, X, y)
-    for kind in ("tune", "train", "curves"):
-        for args in seen[kind]:
-            frames = [a for a in args if isinstance(a, pd.DataFrame | pd.Series)]
-            assert all(f.index.intersection(test).empty for f in frames)
-    assert len(seen["final"]) == 1  # the test set is evaluated exactly once
-    assert seen["final"][0][1].index.equals(test)
+    predictions = pd.read_csv(fast_settings.paths.predictions_file, parse_dates=["date"])
+    assert len(predictions) == len(test)
+    assert predictions["date"].min() >= TEST_START
