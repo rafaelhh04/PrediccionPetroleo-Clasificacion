@@ -40,7 +40,8 @@ def create_label(df: pd.DataFrame) -> pd.DataFrame:
 
     ``shift(-1)`` aligns every row with the next day's return. It must run
     BEFORE any filtering or reordering so that features and label stay
-    aligned; the alignment is asserted on the first 100 rows.
+    aligned. Rows whose next-day return is unknown (the last row, or a day
+    followed by a missing return) get no label and are dropped.
 
     Parameters
     ----------
@@ -50,29 +51,43 @@ def create_label(df: pd.DataFrame) -> pd.DataFrame:
     Returns
     -------
     pandas.DataFrame
-        Dataset sorted by date with a float ``label`` column.
+        Dataset sorted by date with a float ``label`` column (0.0 or 1.0).
 
-    Notes
-    -----
-    Known issue (kept on purpose in this refactoring phase, as fixing it
-    changes the metrics): ``NaN > 0`` evaluates to ``False``, so the last row
-    gets ``label = 0`` instead of ``NaN`` and is not dropped by ``dropna``.
+    Raises
+    ------
+    ValueError
+        If a label does not match the sign of the next day's return.
     """
     df = df.sort_values("date").reset_index(drop=True)
-    df["label"] = (df["brent_return"].shift(-1) > 0).astype(float)
+    next_return = df["brent_return"].shift(-1)
+    # ``NaN > 0`` is False, so mask unknown futures explicitly instead of labelling them 0.
+    df["label"] = (next_return > 0).astype(float).where(next_return.notna())
+    _check_label_alignment(df["label"], next_return)
 
-    returns = df["brent_return"].to_numpy(dtype=float)
-    labels = df["label"].to_numpy(dtype=float)
-    for i in range(min(100, len(df) - 1)):
-        next_return = returns[i + 1]
-        label = labels[i]
-        assert (next_return > 0) == (label == 1.0), (
-            f"Misaligned label at row {i}: next return={next_return:.4f}, label={label}"
-        )
-
+    n_before = len(df)
     df = df.dropna(subset=["label"]).reset_index(drop=True)
-    logger.info("Class distribution:\n%s", df["label"].value_counts(normalize=True).round(3))
+    logger.info(
+        "Labelled %d rows (%d without a known next-day return dropped). Class distribution:\n%s",
+        len(df),
+        n_before - len(df),
+        df["label"].value_counts(normalize=True).round(3),
+    )
     return df
+
+
+def _check_label_alignment(label: pd.Series, next_return: pd.Series) -> None:
+    """Verify that every defined label equals the sign of the next day's return."""
+    known = next_return.notna()
+    expected = (next_return[known] > 0).astype(float)
+    mismatched = label[known] != expected
+    if mismatched.any():
+        row = mismatched.index[np.flatnonzero(mismatched.to_numpy())[0]]
+        raise ValueError(
+            f"Misaligned label at row {row}: next return={next_return.loc[row]:.4f}, "
+            f"label={label.loc[row]}"
+        )
+    if label[~known].notna().any():
+        raise ValueError("Rows without a next-day return must not be labelled.")
 
 
 # ──────────────────────────────────────────────
