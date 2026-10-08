@@ -64,8 +64,17 @@ backtest:
   allow_short: false
   periods_per_year: 252     # trading days, to annualise returns and Sharpe ratios
 
-# `params` are the fixed hyperparameters; `grid` is the search space.
-# random_state is injected from `seed` for every model.
+# Bayesian optimisation (Optuna, TPE sampler seeded with `seed`) for models with a `space`.
+# Each trial is scored with the same purged walk-forward CV as the grid searches; with pruning,
+# a trial whose running mean AUC is below the median of earlier trials at the same fold stops.
+tuning:
+  n_trials: 50
+  timeout: null             # seconds; null = run every trial (a timeout breaks reproducibility)
+  pruning: true
+  startup_trials: 10        # random trials before TPE and pruning kick in
+
+# `params` are the fixed hyperparameters; `grid` (exhaustive) or `space` (Optuna) is the
+# search space. random_state is injected from `seed` for every model.
 models:
   logistic_regression:
     params:
@@ -110,3 +119,23 @@ models:
     grid:
       hidden_pair: [[32, 16], [64, 32], [128, 64]]
       learning_rate: [0.005, 0.01, 0.05]
+
+  lightgbm:
+    params:
+      n_estimators: 200
+      learning_rate: 0.05
+      num_leaves: 15
+      subsample_freq: 1     # enable row subsampling (bagging) every iteration
+      n_jobs: 1             # single thread + deterministic: bit-for-bit reproducible
+      deterministic: true
+      force_row_wise: true
+      verbose: -1
+    space:
+      n_estimators: {type: int, low: 50, high: 500, log: true}
+      learning_rate: {type: float, low: 0.005, high: 0.1, log: true}
+      num_leaves: {type: int, low: 4, high: 64, log: true}
+      max_depth: {type: int, low: 2, high: 8}
+      min_child_samples: {type: int, low: 20, high: 200, log: true}
+      subsample: {type: float, low: 0.5, high: 1.0}
+      colsample_bytree: {type: float, low: 0.5, high: 1.0}
+      reg_lambda: {type: float, low: 0.001, high: 10.0, log: true}

@@ -231,7 +231,21 @@ FAST_MODELS: dict[str, Any] = {
         },
         "grid": {"hidden_pair": [[8, 4]], "learning_rate": [0.01]},
     },
+    "lightgbm": {
+        "params": {"n_estimators": 10, "num_leaves": 4, "n_jobs": 1, "verbose": -1},
+        "space": {
+            "n_estimators": {"type": "int", "low": 5, "high": 20},
+            "learning_rate": {"type": "float", "low": 0.05, "high": 0.2, "log": True},
+            "num_leaves": {"type": "int", "low": 2, "high": 8},
+            "max_depth": {"type": "int", "low": 2, "high": 3},
+            "min_child_samples": {"type": "int", "low": 20, "high": 40},
+            "subsample": {"type": "float", "low": 0.8, "high": 1.0},
+            "colsample_bytree": {"type": "float", "low": 0.8, "high": 1.0},
+            "reg_lambda": {"type": "float", "low": 0.1, "high": 1.0},
+        },
+    },
 }
+FAST_TUNING: dict[str, Any] = {"n_trials": 3, "timeout": None, "pruning": True, "startup_trials": 2}
 
 
 @pytest.fixture
@@ -250,6 +264,7 @@ def fast_settings(tmp_path: Path) -> Settings:
             "rolling_train_size": 1260,
         },
         evaluation={"learning_curve_train_sizes": [0.5, 1.0], "bootstrap_resamples": 200},
+        tuning=FAST_TUNING,
         models=FAST_MODELS,
     )
 

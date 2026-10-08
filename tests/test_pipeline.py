@@ -12,9 +12,9 @@ from brent_forecast.evaluation.report import generate_report
 from brent_forecast.pipeline import run
 from conftest import EVENTS_FILENAME, OIL_FILENAME
 
-MODELS = ["Logistic Regression", "SVM (RBF)", "Random Forest", "MLP NumPy"]
+MODELS = ["Logistic Regression", "SVM (RBF)", "Random Forest", "MLP NumPy", "LightGBM"]
 BASELINES = ["Majority class", "Persistence", "Stratified random", "Buy & hold"]
-KEYS = ["logistic_regression", "svm", "random_forest", "mlp"]
+KEYS = ["logistic_regression", "svm", "random_forest", "mlp", "lightgbm"]
 BASELINE_KEYS = ["majority", "persistence", "stratified", "buy_and_hold"]
 METRIC_KEYS = {"accuracy", "precision", "recall", "f1", "auc_roc"}
 
@@ -32,7 +32,7 @@ def test_run_writes_predictions_metrics_models_and_plots(
     assert protocol["n_windows"] >= 2
     assert list(metrics["models"]) == MODELS + BASELINES
     kinds = [m["kind"] for m in metrics["models"].values()]
-    assert kinds == ["model"] * 4 + ["baseline"] * 4
+    assert kinds == ["model"] * 5 + ["baseline"] * 4
     assert [m["key"] for m in metrics["models"].values()] == KEYS + BASELINE_KEYS
     assert metrics["data"]["matches_recorded_checksums"] is None  # nothing recorded in tmp
     assert set(metrics["data"]["sha256"]) == {OIL_FILENAME, EVENTS_FILENAME}
@@ -64,7 +64,9 @@ def test_run_writes_predictions_metrics_models_and_plots(
         "confusion_mlp_numpy_oos.png",
     } <= plots
     # Per model: out-of-sample confusion matrix and learning curve; plus 3 summary figures.
-    assert len(plots) == 4 * 2 + 3
+    assert len(plots) == 5 * 2 + 3
+    trials = pd.read_csv(paths.results_dir / "optuna_lightgbm.csv")
+    assert len(trials) == fast_settings.tuning.n_trials
 
     for key in KEYS:
         model = joblib.load(paths.models_dir / f"{key}.joblib")

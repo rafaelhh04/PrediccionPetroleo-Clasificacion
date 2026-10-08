@@ -48,7 +48,7 @@ from brent_forecast.models.registry import (
     model_params,
     param_grid,
 )
-from brent_forecast.models.tuning import grid_search
+from brent_forecast.models.tuning import grid_search, optuna_search
 from brent_forecast.validation.walk_forward import PurgedWalkForwardSplit, walk_forward_predict
 
 logger = logging.getLogger(__name__)
@@ -89,16 +89,31 @@ def run(settings: Settings) -> None:
     for key, name in MODEL_NAMES.items():
         config = getattr(settings.models, key)
         fixed = {**config.params, "random_state": settings.seed}
-        best = grid_search(
-            build_pipeline(key, fixed, settings.preprocessing, for_search=True),
-            param_grid(key, config.grid),
-            X_dev,
-            y_dev,
-            cv=tuning_cv,
-            scoring=val.scoring,
-            n_jobs=_SEARCH_N_JOBS.get(key, -1),
-            model_name=name,
-        )
+        estimator = build_pipeline(key, fixed, settings.preprocessing, for_search=True)
+        if config.space:
+            best = optuna_search(
+                estimator,
+                config.space,
+                X_dev,
+                y_dev,
+                cv=tuning_cv,
+                scoring=val.scoring,
+                tuning=settings.tuning,
+                seed=settings.seed,
+                model_name=name,
+                trials_file=paths.results_dir / f"optuna_{key}.csv",
+            )
+        else:
+            best = grid_search(
+                estimator,
+                param_grid(key, config.grid),
+                X_dev,
+                y_dev,
+                cv=tuning_cv,
+                scoring=val.scoring,
+                n_jobs=_SEARCH_N_JOBS.get(key, -1),
+                model_name=name,
+            )
         best_params[key] = {**fixed, **model_params(best["params"])}
         cv_scores[name] = {"auc_mean": best["mean_cv_auc"], "auc_std": best["std_cv_auc"]}
         logger.info("Best hyperparameters | %s: %s", name, best_params[key])

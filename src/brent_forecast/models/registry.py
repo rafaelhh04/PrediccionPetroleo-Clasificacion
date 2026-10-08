@@ -11,6 +11,7 @@ split it is given (train, a CV fold or a walk-forward window), never on more.
 from collections.abc import Mapping, Sequence
 from typing import Any, Final
 
+from lightgbm import LGBMClassifier
 from sklearn.base import BaseEstimator
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import RandomForestClassifier
@@ -28,6 +29,7 @@ MODEL_NAMES: Final[dict[str, str]] = {
     "svm": "SVM (RBF)",
     "random_forest": "Random Forest",
     "mlp": "MLP NumPy",
+    "lightgbm": "LightGBM",
 }
 """Configuration key -> display name, in reporting order."""
 
@@ -56,6 +58,8 @@ def build_estimator(key: str, params: Mapping[str, Any], *, for_search: bool = F
         return RandomForestClassifier(**params)
     if key == "mlp":
         return NumpyMLPClassifier(**params)
+    if key == "lightgbm":
+        return LGBMClassifier(**params)
     raise KeyError(f"Unknown model {key!r}; choose from {sorted(MODEL_NAMES)}")
 
 
