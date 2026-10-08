@@ -134,6 +134,22 @@ load + left-join events ─► label (t+1) ─► feature engineering (past-only
 | Random forest | scikit-learn | `n_estimators`, `max_depth`, `min_samples_leaf` |
 | **MLP 64 → 32 → 1** | **pure NumPy core**, scikit-learn estimator API (`NumpyMLPClassifier`) | hidden sizes, learning rate |
 
+
+### Baselines
+
+Every model must beat naive baselines that go through exactly the same walk-forward evaluation
+(`models/baselines.py`):
+
+| Baseline | Prediction |
+|----------|------------|
+| Majority class | constant `P(up)` = training frequency of up days |
+| Persistence | tomorrow repeats today (up if today's log return > 0) |
+| Stratified random | random guesses with the training class frequencies |
+| Buy & hold | always up (in the backtest: always long) |
+
+A constant score has AUC 0.5 within a window; pooled over windows the majority baseline can deviate from 0.5
+because its constant is re-estimated at every refit.
+
 ---
 
 ## Results
