@@ -24,6 +24,36 @@ EVENTS_FILENAME = "geopolitical_events_timeline.csv"
 EVENT_TYPES = ("war", "sanctions", "opec", "conflict", "disaster", "blockade")
 DATE_BOUNDS = DateBounds(date(2009, 1, 1), date(2011, 12, 31), date(2025, 1, 1))
 
+EXPECTED_FEATURES = [  # engineer_features output, in order
+    "dxy_index",
+    "vix",
+    "brent_volatility_7d",
+    "brent_volatility_30d",
+    "brent_wti_spread",
+    "lag_ret_1",
+    "lag_ret_3",
+    "lag_ret_7",
+    "gpr_change",
+    "event_flag_binary",
+    "high_severity_flag",
+    "vol_ratio",
+    "rsi_14",
+    "macd",
+    "macd_hist",
+    "bb_pct_b",
+    "bb_width",
+    "mom_21",
+    "mom_63",
+    "vix_chg_1",
+    "vix_chg_5",
+    "dxy_ret_1",
+    "dxy_ret_5",
+    "dow_sin",
+    "dow_cos",
+    "month_sin",
+    "month_cos",
+]
+
 
 def make_oil_frame(
     seed: int = 0, start: str = "2010-02-17", end: str = "2026-03-12", step: int = 1

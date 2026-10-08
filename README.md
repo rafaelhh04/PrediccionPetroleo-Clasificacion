@@ -34,7 +34,7 @@ cd PrediccionPetroleo-Clasificacion
 
 uv sync                      # create .venv from uv.lock
 uv run brent data download   # fetch the Kaggle dataset into data/raw/ (needs Kaggle credentials)
-uv run brent train           # full pipeline: preprocess, tune, train, evaluate (~3 min)
+uv run brent train           # full pipeline: preprocess, tune, train, evaluate (~6 min on 4 cores)
 uv run brent report          # statistical report of the last run (CIs, tests, calibration)
 ```
 
@@ -122,9 +122,16 @@ load + left-join events ─► label (t+1) ─► feature engineering (past-only
 - **Leakage controls:** same-day `wti_return` removed; VIF selection, winsorisation percentiles and scaler are
   steps of each model `Pipeline`, refitted on the training rows of every fold and window; tests prove that
   corrupting the future never changes earlier features, training labels or predictions.
-- **Features:** log returns over 1/3/7 days, 30-day volatility and 7/30 volatility ratio, Brent–WTI spread,
-  21-day change of the geopolitical risk index, high-severity event flag, day of week and month
-  (on the real data 10 features survived the VIF > 10 filter).
+- **Features** (all computed from data up to day *t*; one truncation test per feature proves it):
+  - returns and risk: log returns over 1/3/7 days, 21- and 63-day momentum, 7/30-day volatility and their
+    ratio, Brent–WTI spread;
+  - technical indicators (`features/technical.py`): RSI(14) with Wilder smoothing, MACD(12, 26, 9) line and
+    histogram divided by the price, Bollinger(20, 2) %B and bandwidth;
+  - market context: 1- and 5-day log changes of the VIX and the dollar index (DXY), plus their levels;
+  - geopolitics: 21-day change of the risk index, event and high-severity flags;
+  - calendar: sine/cosine of weekday and month.
+
+  The VIF > 10 filter then removes collinear features inside each training window.
 - **Metrics:** accuracy, macro precision / recall / F1 and ROC AUC (primary, used for model selection),
   over the pooled out-of-sample predictions and per walk-forward window (stability over time).
 
@@ -195,29 +202,40 @@ No model beats a coin flip out of sample — consistent with the weak-form effic
 daily returns.
 
 **Statistical report on the synthetic dataset** (not real data; out of sample 2024-01-01 to 2026-03-11,
-573 days, 95 % block-bootstrap intervals, reference baseline: Persistence, AUC 0.5073):
+573 days, 95 % block-bootstrap intervals, reference baseline: Persistence, AUC 0.5073), with the v2
+features:
 
 | Model | OOS AUC [95 % CI] | ΔAUC vs Persistence [95 % CI] | p (Holm) | Brier skill |
 |-------|-------------------|-------------------------------|---------:|------------:|
-| Logistic Regression | 0.508 [0.470, 0.548] | +0.001 [−0.054, +0.056] | 1.000 | −0.0000 |
-| SVM (RBF) | 0.492 [0.445, 0.541] | −0.015 [−0.065, +0.041] | 1.000 | −0.0002 |
-| Random Forest | 0.473 [0.424, 0.518] | −0.035 [−0.096, +0.025] | 0.932 | −0.0201 |
-| MLP NumPy | 0.467 [0.425, 0.512] | −0.040 [−0.101, +0.024] | 0.932 | −0.0140 |
+| Logistic Regression | 0.536 [0.489, 0.582] | +0.028 [−0.026, +0.082] | 1.000 | +0.0027 |
+| SVM (RBF) | 0.491 [0.442, 0.543] | −0.016 [−0.075, +0.046] | 1.000 | −0.0006 |
+| Random Forest | 0.510 [0.465, 0.552] | +0.003 [−0.052, +0.057] | 1.000 | −0.0053 |
+| MLP NumPy | 0.501 [0.453, 0.549] | −0.007 [−0.069, +0.056] | 1.000 | −0.0073 |
 
 Backtest on the same days (long/flat, 5 bps per trade):
 
 | Strategy | CAGR | Sharpe | ΔSharpe vs buy & hold [95 % CI] | Max drawdown | Exposure |
 |----------|-----:|-------:|---------------------------------|-------------:|---------:|
 | Buy & hold | +32.8 % | 1.06 | — | −34.4 % | 100 % |
-| Logistic Regression | +0.4 % | 0.10 | −0.95 [−2.27, +0.41] | −22.4 % | 25 % |
-| SVM (RBF) | 0.0 % | 0.00 | −1.06 [−2.44, +0.35] | 0.0 % | 0 % |
-| Random Forest | −12.6 % | −0.57 | −1.63 [−2.75, −0.61] | −41.2 % | 41 % |
-| MLP NumPy | +3.4 % | 0.26 | −0.79 [−1.83, +0.23] | −28.5 % | 42 % |
+| Logistic Regression | +20.6 % | 1.11 | +0.06 [−1.09, +1.18] | −19.6 % | 35 % |
+| SVM (RBF) | +5.0 % | 0.79 | −0.27 [−1.84, +1.21] | −4.4 % | 3 % |
+| Random Forest | −6.9 % | −0.27 | −1.33 [−2.52, −0.21] | −28.6 % | 39 % |
+| MLP NumPy | +19.8 % | 1.00 | −0.06 [−1.33, +1.15] | −28.1 % | 43 % |
 | Persistence (baseline) | +19.7 % | 0.90 | −0.16 [−1.04, +0.72] | −23.3 % | 48 % |
 
-Every AUC interval contains 0.5, no model beats persistence or the no-information rate, none improves on
-the climatological probability and no strategy beats buy & hold after costs: as expected on a random-walk
-price series, there is no skill to find. (The SVM never predicts "up", so it stays flat.)
+Every AUC interval contains 0.5, no model beats persistence or the no-information rate and no strategy
+beats buy & hold after costs: as expected on a random-walk price series, there is no skill to find. The
+logistic regression's AUC of 0.536 and Sharpe of 1.11 look attractive in isolation; the intervals show they
+are compatible with luck.
+
+Effect of the v2 features (same protocol; v1 = 14 features, v2 = 29 before the VIF filter):
+
+| Model | Dev CV AUC v1 → v2 | OOS AUC v1 → v2 | Sharpe v1 → v2 |
+|-------|-------------------|-----------------|----------------|
+| Logistic Regression | 0.501 → 0.505 | 0.508 → 0.536 | 0.10 → 1.11 |
+| SVM (RBF) | 0.500 → 0.511 | 0.492 → 0.491 | 0.00 → 0.79 |
+| Random Forest | 0.491 → 0.508 | 0.473 → 0.510 | −0.57 → −0.27 |
+| MLP NumPy | 0.505 → 0.507 | 0.467 → 0.501 | 0.26 → 1.00 |
 
 ---
 

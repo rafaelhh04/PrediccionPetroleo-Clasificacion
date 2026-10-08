@@ -13,23 +13,7 @@ from brent_forecast.features.preprocessing import (
     handle_nulls,
     split_by_date,
 )
-
-EXPECTED_FEATURES = [
-    "dxy_index",
-    "vix",
-    "brent_volatility_7d",
-    "brent_volatility_30d",
-    "brent_wti_spread",
-    "lag_ret_1",
-    "lag_ret_3",
-    "lag_ret_7",
-    "gpr_change",
-    "event_flag_binary",
-    "high_severity_flag",
-    "vol_ratio",
-    "day_of_week",
-    "month",
-]
+from conftest import EXPECTED_FEATURES
 
 
 @pytest.fixture
@@ -145,8 +129,13 @@ def test_engineer_features_values(engineered: tuple[pd.DataFrame, list[str]]) ->
         np.log(row["brent_price"] / df.iloc[99]["brent_price"])
     )
     assert np.isfinite(row["gpr_change"])  # defined once the 21-day window is full
-    assert row["day_of_week"] == row["date"].dayofweek
-    assert row["month"] == row["date"].month
+    weekday = 2 * np.pi * row["date"].dayofweek / 5
+    assert (row["dow_sin"], row["dow_cos"]) == pytest.approx((np.sin(weekday), np.cos(weekday)))
+    month = 2 * np.pi * (row["date"].month - 1) / 12
+    assert (row["month_sin"], row["month_cos"]) == pytest.approx((np.sin(month), np.cos(month)))
+    assert row["mom_21"] == pytest.approx(np.log(row["brent_price"] / df.iloc[79]["brent_price"]))
+    assert 0 <= row["rsi_14"] <= 100
+    assert "day_of_week" not in df.columns
     assert row["vol_ratio"] == pytest.approx(
         row["brent_volatility_7d"] / (row["brent_volatility_30d"] + 1e-10)
     )
@@ -163,6 +152,8 @@ def test_engineer_features_event_flags() -> None:
             "brent_lag_3": 50.0,
             "brent_lag_7": 50.0,
             "gpr_index": 100.0,
+            "vix": 20.0,
+            "dxy_index": 100.0,
             "brent_volatility_7d": 1.0,
             "brent_volatility_30d": 1.0,
             "event_severity": [0, 3, 6, 7, 10] * 6,
@@ -187,7 +178,7 @@ def test_handle_nulls_drops_warmup_rows_and_ffills_market_data(
     out = handle_nulls(df.copy(), cols)
 
     assert not out[cols].isna().any().any()
-    assert 21 <= n_before - len(out) <= 35  # gpr_change warm-up dominates
+    assert 63 <= n_before - len(out) <= 75  # the 63-day momentum warm-up dominates
     assert out.index.tolist() == list(range(len(out)))
 
 

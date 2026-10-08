@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 
 from brent_forecast.config import SplitSettings
+from brent_forecast.features import technical
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,10 @@ def engineer_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     - P4: replace sparse event columns with dense ``event_flag_binary`` and
       ``high_severity_flag``.
     - P5: drop redundant WTI volatilities; add ``vol_ratio``.
-    - Seasonality: ``day_of_week`` and ``month``.
+    - Technical indicators (v2): RSI(14), MACD(12, 26, 9) line and histogram,
+      Bollinger(20, 2) %B and bandwidth, 21- and 63-day momentum.
+    - Market context (v2): 1- and 5-day log changes of the VIX and the dollar index.
+    - Seasonality (v2): sine/cosine of the weekday and the month.
 
     Parameters
     ----------
@@ -138,9 +142,23 @@ def engineer_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     df = df.drop(columns=["wti_volatility_7d", "wti_volatility_30d"], errors="ignore")
     df["vol_ratio"] = df["brent_volatility_7d"] / (df["brent_volatility_30d"] + 1e-10)
 
-    # Seasonality
-    df["day_of_week"] = df["date"].dt.dayofweek  # 0 = Monday ... 4 = Friday
-    df["month"] = df["date"].dt.month  # 1-12
+    # Technical indicators on the Brent price (see features.technical)
+    price = df["brent_price"]
+    df["rsi_14"] = technical.rsi(price, 14)
+    df["macd"], df["macd_hist"] = technical.macd(price, 12, 26, 9)
+    df["bb_pct_b"], df["bb_width"] = technical.bollinger(price, 20, 2.0)
+    for n in (21, 63):
+        df[f"mom_{n}"] = technical.log_return(price, n)
+
+    # Market context: changes of the VIX and the dollar index (gaps forward-filled, past-only)
+    for col, name in (("vix", "vix_chg"), ("dxy_index", "dxy_ret")):
+        level = df[col].ffill()
+        for n in (1, 5):
+            df[f"{name}_{n}"] = technical.log_return(level, n)
+
+    # Seasonality, cyclically encoded (Friday is next to Monday, December to January)
+    df["dow_sin"], df["dow_cos"] = technical.cyclical(df["date"].dt.dayofweek, 5)
+    df["month_sin"], df["month_cos"] = technical.cyclical(df["date"].dt.month - 1, 12)
 
     # Columns EXCLUDED from the feature set:
     # - date / label: metadata
@@ -181,8 +199,8 @@ def engineer_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
 def handle_nulls(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame:
     """Forward-fill VIX/DXY and drop rows with null features.
 
-    Lags create nulls at the start (``lag_ret_7``: 7 rows) and ``gpr_change``
-    creates 21, so at most ~21 rows out of ~4,000 are dropped (< 0.6%).
+    Lags and rolling windows create nulls at the start; the longest warm-up is
+    ``mom_63`` (63 rows), so about 65 rows out of ~4,000 are dropped (< 2%).
     """
     for col in ["vix", "dxy_index"]:
         if col in df.columns:

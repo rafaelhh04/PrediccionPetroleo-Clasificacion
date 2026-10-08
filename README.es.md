@@ -100,6 +100,11 @@ test binomial de accuracy frente a la *no-information rate*, Brier score, Brier 
 previsión climatológica y diagrama de fiabilidad. El informe indica si los datos coinciden con los
 checksums registrados de Kaggle o si su procedencia no está verificada.
 
+**Features v2:** además de retornos, volatilidades, spread y riesgo geopolítico, RSI(14), MACD(12, 26, 9),
+Bollinger(20, 2) %B y anchura, momentum de 21 y 63 días, cambios de VIX y DXY a 1 y 5 días y codificación
+seno/coseno del día de la semana y del mes. Cada feature tiene un test de truncamiento que prueba que solo
+usa datos hasta su propio día.
+
 **Backtest económico:** cada candidato se convierte en una estrategia long/flat (comprado si
 `P(sube) >= 0.5`) sobre el retorno del día siguiente, con 5 pb de coste por operación. Se reportan CAGR,
 volatilidad, Sharpe, drawdown máximo, hit ratio, exposición y número de operaciones, y un intervalo por
@@ -123,18 +128,19 @@ Ningún modelo supera al azar fuera de muestra, coherente con la hipótesis de m
 débil para retornos diarios.
 
 **Informe estadístico con el dataset sintético** (no son datos reales; fuera de muestra 2024-01-01 a
-2026-03-11, 573 días, IC 95 % por block bootstrap, baseline de referencia: persistencia, AUC 0.5073):
+2026-03-11, 573 días, IC 95 % por block bootstrap, baseline de referencia: persistencia, AUC 0.5073), con
+las features v2:
 
-| Modelo | AUC OOS [IC 95 %] | ΔAUC vs persistencia [IC 95 %] | p (Holm) |
-|--------|-------------------|--------------------------------|---------:|
-| Logistic Regression | 0.508 [0.470, 0.548] | +0.001 [−0.054, +0.056] | 1.000 |
-| SVM (RBF) | 0.492 [0.445, 0.541] | −0.015 [−0.065, +0.041] | 1.000 |
-| Random Forest | 0.473 [0.424, 0.518] | −0.035 [−0.096, +0.025] | 0.932 |
-| MLP NumPy | 0.467 [0.425, 0.512] | −0.040 [−0.101, +0.024] | 0.932 |
+| Modelo | AUC OOS [IC 95 %] | ΔAUC vs persistencia [IC 95 %] | p (Holm) | Sharpe (5 pb) |
+|--------|-------------------|--------------------------------|---------:|--------------:|
+| Logistic Regression | 0.536 [0.489, 0.582] | +0.028 [−0.026, +0.082] | 1.000 | 1.11 |
+| SVM (RBF) | 0.491 [0.442, 0.543] | −0.016 [−0.075, +0.046] | 1.000 | 0.79 |
+| Random Forest | 0.510 [0.465, 0.552] | +0.003 [−0.052, +0.057] | 1.000 | −0.27 |
+| MLP NumPy | 0.501 [0.453, 0.549] | −0.007 [−0.069, +0.056] | 1.000 | 1.00 |
 
 Todos los intervalos de AUC contienen 0.5, ningún modelo supera a la persistencia ni a la
-*no-information rate* y ninguna estrategia bate a buy & hold tras costes (Sharpe 1.06 frente a 0.26 del mejor
-modelo, la MLP): no hay capacidad predictiva que encontrar.
+*no-information rate* y ninguna estrategia bate a buy & hold tras costes (Sharpe 1.06; la diferencia de la
+mejor, la regresión logística, es +0.06 [−1.09, +1.18]): no hay capacidad predictiva que encontrar.
 
 ---
 
