@@ -7,6 +7,7 @@ from sklearn.preprocessing import StandardScaler
 
 from brent_forecast.config import PreprocessingSettings, SplitSettings
 from brent_forecast.features.preprocessing import (
+    _check_label_alignment,
     create_label,
     engineer_features,
     filter_features_by_vif,
@@ -68,15 +69,41 @@ def test_create_label_sorts_by_date(merged_frame: pd.DataFrame) -> None:
     pd.testing.assert_frame_equal(out, create_label(merged_frame.copy()))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Known bug (fixed in Phase 3): NaN > 0 is False, so the last row keeps label 0 "
-    "instead of being dropped.",
-)
 def test_create_label_drops_the_last_row_without_future(merged_frame: pd.DataFrame) -> None:
     out = create_label(merged_frame.copy())
 
     assert len(out) == len(merged_frame) - 1
+    assert out["date"].iloc[-1] == merged_frame["date"].iloc[-2]
+    assert not out["label"].isna().any()
+
+
+def test_create_label_drops_days_followed_by_a_missing_return() -> None:
+    df = pd.DataFrame(
+        {
+            "date": pd.bdate_range("2020-01-01", periods=5),
+            "brent_return": [0.5, -0.2, np.nan, 0.3, 0.1],
+        }
+    )
+
+    out = create_label(df)
+
+    # Day 1 (next return NaN) and day 4 (no next day) have no label.
+    assert out["date"].tolist() == list(df["date"].iloc[[0, 2, 3]])
+    assert out["label"].tolist() == [0.0, 1.0, 1.0]
+
+
+def test_label_alignment_check_rejects_a_wrong_label() -> None:
+    next_return = pd.Series([0.4, -0.1, np.nan])
+
+    with pytest.raises(ValueError, match="Misaligned label at row 1"):
+        _check_label_alignment(pd.Series([1.0, 1.0, np.nan]), next_return)
+
+
+def test_label_alignment_check_rejects_a_label_without_future() -> None:
+    next_return = pd.Series([0.4, np.nan])
+
+    with pytest.raises(ValueError, match="must not be labelled"):
+        _check_label_alignment(pd.Series([1.0, 0.0]), next_return)
 
 
 # ── engineer_features ─────────────────────────────────────────

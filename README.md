@@ -129,7 +129,9 @@ load + left-join events ─► label (t+1) ─► feature engineering ─► dro
 
 ## Results
 
-Reference run on the Kaggle data (ROC AUC):
+Reference run of the original project on the Kaggle data (ROC AUC). It predates the phase-3 fixes
+(e.g. the last-row labelling bug) and has not been re-run on real data yet: Kaggle is not reachable from
+the development environment, so later numbers are reproduced on the synthetic dataset used in tests.
 
 | Model | Train | Validation | Test |
 |-------|------:|-----------:|-----:|
@@ -186,8 +188,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 
 ## Known limitations
 
-- `create_label` keeps the last row with label `0` (its next-day return is unknown) instead of dropping it;
-  the fix changes the metrics and is scheduled with the ML-rigour phase.
 - A single fixed train/validation/test split; walk-forward validation is planned.
 
 ## Author
