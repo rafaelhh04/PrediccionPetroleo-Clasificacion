@@ -150,9 +150,11 @@ def engineer_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     # - event_*: textual geopolitical columns, captured by the binary flags
     # - oil_event_*: leftovers of the rename in data.load
     # - event_flag: implied by event_flag_binary; avoids duplicated signal
+    # - next_return: tomorrow's realised return, kept only for the backtest (leakage)
     exclude = {
         "date",
         "label",
+        "next_return",
         "brent_return",
         "brent_price",
         "wti_price",
@@ -204,7 +206,12 @@ class Dataset(NamedTuple):
     """Model-ready frame: one row per labelled trading day."""
 
     frame: pd.DataFrame
-    """``date``, ``label`` and every engineered feature (no missing values)."""
+    """``date``, ``label``, ``next_return`` and every engineered feature.
+
+    ``next_return`` is the simple return from day ``t`` to ``t+1`` (the
+    outcome the label encodes); it is never a feature and only feeds the
+    economic backtest.
+    """
     feature_cols: list[str]
     """Candidate feature columns, before the fitted VIF selection."""
 
@@ -231,10 +238,12 @@ def build_dataset(df: pd.DataFrame) -> Dataset:
     model pipeline instead, see :mod:`brent_forecast.models.registry`.
     """
     logger.info("Building the dataset")
+    df = df.sort_values("date").reset_index(drop=True)
+    df["next_return"] = df["brent_price"].shift(-1) / df["brent_price"] - 1
     df = create_label(df)
     df, feature_cols = engineer_features(df)
     df = handle_nulls(df, feature_cols)
-    frame = df[["date", "label", *feature_cols]].reset_index(drop=True)
+    frame = df[["date", "label", "next_return", *feature_cols]].reset_index(drop=True)
     return Dataset(frame=frame, feature_cols=feature_cols)
 
 

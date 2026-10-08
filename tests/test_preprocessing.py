@@ -231,8 +231,15 @@ def test_build_dataset(merged_frame: pd.DataFrame) -> None:
     ds = build_dataset(merged_frame.copy())
 
     assert ds.feature_cols == EXPECTED_FEATURES
-    assert list(ds.frame.columns) == ["date", "label", *EXPECTED_FEATURES]
+    assert list(ds.frame.columns) == ["date", "label", "next_return", *EXPECTED_FEATURES]
+    assert "next_return" not in ds.feature_cols  # tomorrow's return is never a feature
     assert not ds.frame.isna().any().any()
+    # The backtest return is the outcome the label encodes.
+    assert ((ds.frame["next_return"] > 0).astype(float) == ds.frame["label"]).all()
+    prices = merged_frame.set_index("date")["brent_price"]
+    first = ds.frame.iloc[0]
+    tomorrow = prices.index[prices.index.get_loc(first["date"]) + 1]
+    assert first["next_return"] == pytest.approx(prices[tomorrow] / prices[first["date"]] - 1)
     assert ds.frame.index.tolist() == list(range(len(ds.frame)))
     pd.testing.assert_frame_equal(ds.features, ds.frame[EXPECTED_FEATURES])
     pd.testing.assert_series_equal(ds.target, ds.frame["label"])
