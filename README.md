@@ -102,18 +102,20 @@ Precedence: explicit arguments > environment variables > YAML file.
 ## Methodology
 
 ```text
-load + left-join events ─► label (t+1) ─► feature engineering ─► drop nulls ─► VIF filter (train only)
-   ─► chronological split ─► winsorise 1–99 % (train percentiles) ─► StandardScaler (fit on train)
+load + left-join events ─► label (t+1) ─► feature engineering (past-only) ─► drop warm-up rows
+   ─► chronological split ─► per model, a scikit-learn Pipeline:
+        VIFSelector ─► Winsorizer (return features, 1–99 %) ─► StandardScaler ─► model
    ─► grid search with TimeSeriesSplit(5) on train ─► fit ─► validation ─► single pass on test
 ```
 
 - **Chronological split:** train `< 2022-01-01`, validation `2022–2023`, test `≥ 2024-01-01`.
 - **Leakage controls:** same-day `wti_return` removed; VIF selection, winsorisation percentiles and scaler are
-  fitted on training rows only; tuning uses expanding-window `TimeSeriesSplit` on train only; the test set is
-  evaluated exactly once.
+  steps of each model `Pipeline`, so they are fitted on training rows only, and refitted inside every CV
+  fold; tuning uses expanding-window `TimeSeriesSplit` on train only; the test set is evaluated exactly once.
+  Every fitted pipeline is saved to `results/models/<model>.joblib`.
 - **Features:** log returns over 1/3/7 days, 30-day volatility and 7/30 volatility ratio, Brent–WTI spread,
   21-day change of the geopolitical risk index, high-severity event flag, day of week and month
-  (10 features survive the VIF > 10 filter).
+  (on the real data 10 features survived the VIF > 10 filter).
 - **Metrics:** accuracy, macro precision / recall / F1 and ROC AUC (primary, used for model selection).
 
 ### Models
@@ -121,9 +123,9 @@ load + left-join events ─► label (t+1) ─► feature engineering ─► dro
 | Model | Implementation | Search space |
 |-------|----------------|--------------|
 | Logistic regression (L2) | scikit-learn | `C` |
-| SVM, RBF kernel | scikit-learn | `C`, `gamma` |
+| SVM, RBF kernel (sigmoid-calibrated probabilities) | scikit-learn | `C`, `gamma` |
 | Random forest | scikit-learn | `n_estimators`, `max_depth`, `min_samples_leaf` |
-| **MLP 64 → 32 → 1** | **pure NumPy** | hidden sizes, learning rate |
+| **MLP 64 → 32 → 1** | **pure NumPy core**, scikit-learn estimator API (`NumpyMLPClassifier`) | hidden sizes, learning rate |
 
 ---
 
@@ -159,8 +161,8 @@ backtest) is the goal of the next phase of the [roadmap](docs/ROADMAP.md).
 │   ├── logging_config.py       # console + per-run file logging
 │   ├── pipeline.py             # end-to-end training orchestration
 │   ├── data/                   # Kaggle download + checksums, loading and merge
-│   ├── features/               # label, feature engineering, VIF, split, winsorisation, scaling
-│   ├── models/                 # LogReg, SVM, RF, NumPy MLP, shared tuning helpers
+│   ├── features/               # label, past-only features, split; VIFSelector / Winsorizer transformers
+│   ├── models/                 # registry of model pipelines, NumPy MLP (core + estimator), tuning
 │   └── evaluation/             # metrics, plots, learning curves, final test evaluation
 ├── tests/                      # unit, leakage-guard, gradient-check and property tests
 ├── .github/                    # CI workflow, Dependabot, templates, CODEOWNERS, ruleset

@@ -1,165 +1,134 @@
 """
 End-to-end training pipeline, invoked from the CLI with ``brent train``.
 
-Stages: load -> preprocess -> tune (TimeSeriesSplit) -> train the 4 models
+Stages: load -> build the dataset (stateless steps) -> chronological split ->
+tune every model pipeline with TimeSeriesSplit -> fit on train -> validation
 -> learning curves -> single final evaluation on the test set.
 Logging is configured by the caller (see ``brent_forecast.logging_config``).
 """
 
 import json
 import logging
-import os
 from pathlib import Path
 
+import joblib
 import numpy as np
 
 from brent_forecast._types import ModelResult
 from brent_forecast.config import Settings
-from brent_forecast.data.load import load_oil_data
+from brent_forecast.data.load import DateBounds, load_oil_data
 from brent_forecast.evaluation.final import (
     evaluate_on_test,
     log_final_summary_table,
     plot_roc_test_comparison,
     plot_train_val_test_summary,
 )
-from brent_forecast.evaluation.learning_curves import (
-    plot_learning_curve_mlp,
-    plot_learning_curve_sklearn,
-)
+from brent_forecast.evaluation.learning_curves import plot_learning_curve, plot_training_curves
 from brent_forecast.evaluation.metrics import log_summary_table, plot_roc_comparison
-from brent_forecast.features.preprocessing import preprocess
-from brent_forecast.models.logistic_regression import (
-    train_and_evaluate as run_logreg,
+from brent_forecast.features.preprocessing import build_dataset, split_temporal
+from brent_forecast.models.base import fit_and_evaluate, log_top_features
+from brent_forecast.models.registry import (
+    MODEL_NAMES,
+    build_pipeline,
+    model_params,
+    param_grid,
 )
-from brent_forecast.models.logistic_regression import (
-    tune_hyperparameters as tune_logreg,
-)
-from brent_forecast.models.neural_network import (
-    train_and_evaluate as run_mlp,
-)
-from brent_forecast.models.neural_network import (
-    tune_hyperparameters as tune_mlp,
-)
-from brent_forecast.models.random_forest import (
-    train_and_evaluate as run_rf,
-)
-from brent_forecast.models.random_forest import (
-    tune_hyperparameters as tune_rf,
-)
-from brent_forecast.models.svm import (
-    train_and_evaluate as run_svm,
-)
-from brent_forecast.models.svm import (
-    tune_hyperparameters as tune_svm,
-)
-from brent_forecast.models.tuning import make_time_series_cv
+from brent_forecast.models.tuning import grid_search, make_time_series_cv
 
 logger = logging.getLogger(__name__)
+
+# The forest parallelises internally; nesting a parallel search would oversubscribe.
+_SEARCH_N_JOBS = {"random_forest": 1}
 
 
 def run(settings: Settings) -> None:
     """Run the full pipeline with the given settings."""
     np.random.seed(settings.seed)
     paths = settings.paths
-    os.makedirs(paths.plots_dir, exist_ok=True)
+    paths.plots_dir.mkdir(parents=True, exist_ok=True)
     logger.info("Brent direction classifier — training run (seed=%d)", settings.seed)
 
-    # ─── 1. Load and merge datasets ──────────────────────────────
-    logger.info("[1/6] Loading and merging datasets")
+    # ─── 1. Load, build the dataset and split ────────────────────
+    logger.info("[1/6] Loading data and building the dataset")
+    data = settings.data
     df = load_oil_data(
-        paths.data_dir / settings.data.oil_filename,
-        paths.data_dir / settings.data.events_filename,
+        paths.data_dir / data.oil_filename,
+        paths.data_dir / data.events_filename,
+        DateBounds(data.expected_start_min, data.expected_start_max, data.expected_end_min),
     )
+    dataset = build_dataset(df)
+    parts = split_temporal(dataset.frame, settings.split)
+    cols = dataset.feature_cols
+    X_train, y_train = parts.train[cols], parts.train["label"]
+    X_val, y_val = parts.val[cols], parts.val["label"]
+    X_test, y_test = parts.test[cols], parts.test["label"]
 
-    # ─── 2. Preprocessing ────────────────────────────────────────
-    logger.info("[2/6] Preprocessing")
-    X_train, X_val, X_test, y_train, y_val, y_test, scaler, feature_cols = preprocess(
-        df, settings.split, settings.preprocessing
-    )
+    # ─── 2. Hyperparameter tuning with TimeSeriesSplit ───────────
     logger.info(
-        "Scaler fitted on train: %s (n_features=%d); X_test held out until the final step",
-        type(scaler).__name__,
-        scaler.n_features_in_,
-    )
-
-    # ─── 3. Hyperparameter tuning with TimeSeriesSplit ───────────
-    logger.info(
-        "[3/6] Hyperparameter tuning with TimeSeriesSplit (n_splits=%d)", settings.cv.n_splits
+        "[2/6] Hyperparameter tuning with TimeSeriesSplit (n_splits=%d)", settings.cv.n_splits
     )
     cv = make_time_series_cv(settings.cv.n_splits)
-    models = settings.models
-    scoring, seed = settings.cv.scoring, settings.seed
-    best_params = {
-        "Logistic Regression": tune_logreg(
-            X_train, y_train, cv, models.logistic_regression, scoring=scoring, seed=seed
-        ),
-        "SVM (RBF)": tune_svm(X_train, y_train, cv, models.svm, scoring=scoring, seed=seed),
-        "Random Forest": tune_rf(
-            X_train, y_train, cv, models.random_forest, scoring=scoring, seed=seed
-        ),
-        "MLP NumPy": tune_mlp(X_train, y_train, cv, models.mlp, scoring=scoring, seed=seed),
-    }
-    for name, params in best_params.items():
-        logger.info("Best hyperparameters | %s: %s", name, params)
-
-    # ─── 4. Train the 4 models with the best hyperparameters ─────
-    logger.info("[4/6] Training the 4 models with the best hyperparameters")
-    runners = [
-        ("Logistic Regression", run_logreg),
-        ("SVM (RBF)", run_svm),
-        ("Random Forest", run_rf),
-        ("MLP NumPy", run_mlp),
-    ]
-    results = []
-    for name, runner in runners:
-        results.append(
-            runner(
-                X_train,
-                y_train,
-                X_val,
-                y_val,
-                feature_cols,
-                params=best_params[name],
-                plots_dir=paths.plots_dir,
-            )
+    best_params = {}
+    for key, name in MODEL_NAMES.items():
+        config = getattr(settings.models, key)
+        fixed = {**config.params, "random_state": settings.seed}
+        best = grid_search(
+            build_pipeline(key, fixed, settings.preprocessing, for_search=True),
+            param_grid(key, config.grid),
+            X_train,
+            y_train,
+            cv=cv,
+            scoring=settings.cv.scoring,
+            n_jobs=_SEARCH_N_JOBS.get(key, -1),
+            model_name=name,
         )
+        best_params[key] = {**fixed, **model_params(best)}
+        logger.info("Best hyperparameters | %s: %s", name, best_params[key])
+
+    # ─── 3. Fit on train, evaluate on validation ─────────────────
+    logger.info("[3/6] Training the %d model pipelines on the training set", len(MODEL_NAMES))
+    paths.models_dir.mkdir(parents=True, exist_ok=True)
+    results: list[ModelResult] = []
+    for key, name in MODEL_NAMES.items():
+        pipeline = build_pipeline(key, best_params[key], settings.preprocessing)
+        logger.info("[%s] Training with params: %s", name, best_params[key])
+        result = fit_and_evaluate(pipeline, name, X_train, y_train, X_val, y_val, paths.plots_dir)
+        log_top_features(pipeline, name)
+        artefact = paths.models_dir / f"{key}.joblib"
+        joblib.dump(pipeline, artefact)
+        logger.info("[%s] Pipeline saved to %s", name, artefact)
+        results.append(result)
 
     log_summary_table(results)
     roc_path = plot_roc_comparison(results, y_val, paths.plots_dir)
     logger.info("Validation ROC comparison saved to %s", roc_path)
+    mlp = results[list(MODEL_NAMES).index("mlp")]["model"].named_steps["model"]
+    plot_training_curves(mlp.history_, paths.plots_dir)
 
-    # ─── 5. Learning curves ──────────────────────────────────────
-    logger.info("[5/6] Learning curves (TimeSeriesSplit)")
-    sklearn_names = ["Logistic Regression", "SVM (RBF)", "Random Forest"]
-    train_sizes = settings.evaluation.learning_curve_train_sizes
-    for r, name in zip(results[:3], sklearn_names, strict=True):
-        # sklearn.learning_curve clones the fitted estimator and refits it per fold.
-        plot_learning_curve_sklearn(
+    # ─── 4. Learning curves ──────────────────────────────────────
+    logger.info("[4/6] Learning curves (TimeSeriesSplit)")
+    for r in results:
+        plot_learning_curve(
             r["model"],
             X_train,
             y_train,
-            name,
+            r["model_name"],
             cv=cv,
             scoring=settings.cv.scoring,
-            train_sizes=train_sizes,
+            train_sizes=settings.evaluation.learning_curve_train_sizes,
             plots_dir=paths.plots_dir,
         )
-    plot_learning_curve_mlp(
-        X_train,
-        y_train,
-        best_params["MLP NumPy"],
-        cv=cv,
-        train_sizes=train_sizes,
-        plots_dir=paths.plots_dir,
-    )
 
-    # ─── 6. Final evaluation on TEST (single pass) ───────────────
-    logger.info("[6/6] Final evaluation on X_test (single pass)")
+    # ─── 5. Final evaluation on TEST (single pass) ───────────────
+    logger.info("[5/6] Final evaluation on the test set (single pass)")
     final_results = evaluate_on_test(results, X_test, y_test, paths.plots_dir)
 
     plot_roc_test_comparison(final_results, y_test, paths.plots_dir)
     plot_train_val_test_summary(final_results, paths.plots_dir)
     log_final_summary_table(final_results)
+
+    # ─── 6. Persist metrics ──────────────────────────────────────
+    logger.info("[6/6] Saving metrics")
     _save_metrics(final_results, paths.metrics_file)
     logger.info("Final metrics saved to %s", paths.metrics_file)
 

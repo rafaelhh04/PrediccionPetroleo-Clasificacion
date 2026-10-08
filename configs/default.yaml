@@ -7,6 +7,10 @@
 #   BRENT_SPLIT__TRAIN_END=2021-01-01
 #   BRENT_MODELS__RANDOM_FOREST__GRID='{"max_depth": [5, 10]}'
 # Relative paths are resolved against the current working directory.
+#
+# Overrides are DEEP-MERGED into this file: the example above replaces only
+# `max_depth` and keeps the other keys of the random-forest grid. To shrink a
+# grid, override every one of its keys.
 
 seed: 42
 
@@ -19,6 +23,10 @@ data:
   kaggle_dataset: kavyadhyani/global-oil-prices-andgeopolitical-events
   oil_filename: oil_geopolitics_dataset_2010_2026.csv
   events_filename: geopolitical_events_timeline.csv
+  # Sanity bounds checked after loading (catch a truncated or wrong file).
+  expected_start_min: 2009-01-01
+  expected_start_max: 2011-12-31
+  expected_end_min: 2025-01-01
 
 # Strict chronological split: train < train_end <= val < val_end <= test.
 split:
@@ -53,7 +61,7 @@ models:
       kernel: rbf
       C: 1.0
       gamma: scale
-      probability: true
+      # Probabilities come from sigmoid calibration (CalibratedClassifierCV) of the final model.
     grid:
       C: [0.1, 1.0, 10.0]
       gamma: [scale, 0.01, 0.1]
@@ -78,6 +86,8 @@ models:
       batch_size: 64
       max_epochs: 100
       patience: 10
+      validation_fraction: 0.1      # last 10 % of the training rows, for early stopping
+      early_stopping_metric: loss   # validation BCE; "auc" was the original criterion
     grid:
       hidden_pair: [[32, 16], [64, 32], [128, 64]]
       learning_rate: [0.005, 0.01, 0.05]

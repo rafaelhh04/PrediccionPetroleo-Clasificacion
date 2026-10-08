@@ -1,7 +1,9 @@
 """Load the oil market dataset and merge it with the geopolitical events timeline."""
 
 import logging
+from datetime import date
 from pathlib import Path
+from typing import NamedTuple
 
 import pandas as pd
 
@@ -10,7 +12,15 @@ logger = logging.getLogger(__name__)
 _EVENT_COLUMNS = ("event_type", "event_description", "event_severity")
 
 
-def load_oil_data(oil_path: Path, events_path: Path) -> pd.DataFrame:
+class DateBounds(NamedTuple):
+    """Plausible coverage of the dataset, checked after loading."""
+
+    start_min: date
+    start_max: date
+    end_min: date
+
+
+def load_oil_data(oil_path: Path, events_path: Path, bounds: DateBounds) -> pd.DataFrame:
     """Load both datasets and left-join the geopolitical events on ``date``.
 
     After the merge, ``event_type``, ``event_description`` and
@@ -24,6 +34,8 @@ def load_oil_data(oil_path: Path, events_path: Path) -> pd.DataFrame:
         CSV with daily prices and market indicators.
     events_path
         CSV with the geopolitical events timeline.
+    bounds
+        Expected first/last dates (catches a truncated or wrong file).
 
     Returns
     -------
@@ -45,7 +57,7 @@ def load_oil_data(oil_path: Path, events_path: Path) -> pd.DataFrame:
     df = _resolve_overlap(df)
     df = df.sort_values("date").reset_index(drop=True)
 
-    _validate(df, expected_rows=len(df_oil))
+    _validate(df, expected_rows=len(df_oil), bounds=bounds)
 
     return df
 
@@ -168,7 +180,7 @@ def _resolve_overlap(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _validate(df: pd.DataFrame, expected_rows: int) -> None:
+def _validate(df: pd.DataFrame, expected_rows: int, bounds: DateBounds) -> None:
     """Check the integrity of the merged frame.
 
     Checks: no duplicated dates, the left join neither added nor lost rows, no
@@ -203,10 +215,16 @@ def _validate(df: pd.DataFrame, expected_rows: int) -> None:
 
     min_date = df["date"].min()
     max_date = df["date"].max()
-    if min_date.year < 2009 or min_date.year > 2011:
-        errors.append(f"DATE RANGE: unexpected minimum date ({min_date.date()}).")
-    if max_date.year < 2025:
-        errors.append(f"DATE RANGE: unexpected maximum date ({max_date.date()}).")
+    if not bounds.start_min <= min_date.date() <= bounds.start_max:
+        errors.append(
+            f"DATE RANGE: unexpected minimum date ({min_date.date()}); expected between "
+            f"{bounds.start_min} and {bounds.start_max}."
+        )
+    if max_date.date() < bounds.end_min:
+        errors.append(
+            f"DATE RANGE: unexpected maximum date ({max_date.date()}); expected on or after "
+            f"{bounds.end_min}."
+        )
 
     if errors:
         for e in errors:

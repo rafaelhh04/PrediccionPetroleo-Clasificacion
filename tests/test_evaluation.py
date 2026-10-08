@@ -13,10 +13,7 @@ from brent_forecast.evaluation.final import (
     plot_roc_test_comparison,
     plot_train_val_test_summary,
 )
-from brent_forecast.evaluation.learning_curves import (
-    plot_learning_curve_mlp,
-    plot_learning_curve_sklearn,
-)
+from brent_forecast.evaluation.learning_curves import plot_learning_curve, plot_training_curves
 from brent_forecast.evaluation.metrics import (
     compute_metrics,
     log_full_metrics,
@@ -26,19 +23,8 @@ from brent_forecast.evaluation.metrics import (
     plot_roc_curve,
     safe_name,
 )
-from brent_forecast.models.neural_network import train_mlp
+from brent_forecast.models.mlp import NumpyMLPClassifier
 from brent_forecast.models.tuning import make_time_series_cv
-
-MLP_KWARGS: dict[str, Any] = {
-    "hidden_1": 8,
-    "hidden_2": 4,
-    "dropout_p": 0.1,
-    "learning_rate": 0.05,
-    "batch_size": 32,
-    "max_epochs": 3,
-    "patience": 2,
-    "random_state": 0,
-}
 
 
 def _is_png(path: Path) -> bool:
@@ -137,17 +123,14 @@ def test_comparison_plots_and_tables(plots_dir: Path, caplog: pytest.LogCaptureF
 # ── final evaluation ──────────────────────────────────────────
 
 
-def test_evaluate_on_test_handles_sklearn_and_mlp(
+def test_evaluate_on_test_with_any_probabilistic_estimator(
     toy_xy: tuple[np.ndarray, np.ndarray], plots_dir: Path
 ) -> None:
     X, y = toy_xy
     X_tr, y_tr, X_te, y_te = X[:200], y[:200], X[200:], y[200:]
     logreg = LogisticRegression().fit(X_tr, y_tr)
-    weights, history = train_mlp(X_tr, y_tr, X_te, y_te, verbose=False, **MLP_KWARGS)
-    fitted = [
-        {"model_name": "LogReg", "model": logreg},
-        {"model_name": "MLP", "model": {"params": weights, "history": history, "config": {}}},
-    ]
+    mlp = NumpyMLPClassifier(hidden_1=8, hidden_2=4, max_epochs=3, random_state=0).fit(X_tr, y_tr)
+    fitted = [{"model_name": "LogReg", "model": logreg}, {"model_name": "MLP", "model": mlp}]
 
     results = evaluate_on_test(fitted, X_te, y_te, plots_dir)
 
@@ -162,42 +145,48 @@ def test_evaluate_on_test_handles_sklearn_and_mlp(
     assert "metrics_test" not in fitted[0]  # inputs are not mutated
 
 
-# ── learning curves ───────────────────────────────────────────
+# ── learning / training curves ────────────────────────────────
 
 
-def test_learning_curve_sklearn(toy_xy: tuple[np.ndarray, np.ndarray], plots_dir: Path) -> None:
+@pytest.mark.parametrize(
+    ("estimator", "slug"),
+    [
+        (LogisticRegression(), "logistic_regression"),
+        (NumpyMLPClassifier(hidden_1=4, hidden_2=2, max_epochs=2, random_state=0), "mlp_numpy"),
+    ],
+)
+def test_learning_curve(
+    estimator: Any,
+    slug: str,
+    toy_xy: tuple[np.ndarray, np.ndarray],
+    plots_dir: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("INFO")
     X, y = toy_xy
+    name = "Logistic Regression" if slug == "logistic_regression" else "MLP NumPy"
 
-    path = plot_learning_curve_sklearn(
-        LogisticRegression(),
+    path = plot_learning_curve(
+        estimator,
         X,
         y,
-        "Logistic Regression",
+        name,
         cv=make_time_series_cv(2),
         scoring="roc_auc",
         train_sizes=[0.5, 1.0],
         plots_dir=plots_dir,
     )
 
-    assert path == plots_dir / "learning_curve_logistic_regression.png"
+    assert path == plots_dir / f"learning_curve_{slug}.png"
     assert _is_png(path)
+    assert caplog.text.count("CV AUC") == 2
 
 
-def test_learning_curve_mlp(
-    toy_xy: tuple[np.ndarray, np.ndarray], plots_dir: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    caplog.set_level("INFO")
+def test_training_curves(toy_xy: tuple[np.ndarray, np.ndarray], plots_dir: Path) -> None:
     X, y = toy_xy
+    mlp = NumpyMLPClassifier(max_epochs=4, random_state=0).fit(X, y)
 
-    path = plot_learning_curve_mlp(
-        X,
-        y,
-        {**MLP_KWARGS, "unused_key": 1},
-        cv=make_time_series_cv(2),
-        train_sizes=[0.5, 1.0],
-        plots_dir=plots_dir,
-    )
+    path = plot_training_curves(mlp.history_, plots_dir)
 
-    assert path == plots_dir / "learning_curve_mlp_numpy.png"
+    assert path == plots_dir / "training_curves_mlp_numpy.png"
     assert _is_png(path)
-    assert caplog.text.count("frac=") == 2

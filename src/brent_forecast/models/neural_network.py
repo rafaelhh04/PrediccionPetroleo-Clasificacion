@@ -1,8 +1,9 @@
 """Multilayer perceptron implemented from scratch in pure NumPy.
 
 Default architecture: n_in -> 64 (ReLU + dropout 0.2) -> 32 (ReLU + dropout 0.2)
--> 1 (sigmoid). Layer sizes, learning rate and dropout come from the
-configuration, and the grid search is done manually with TimeSeriesSplit.
+-> 1 (sigmoid). This module is the numerical core (forward pass,
+backpropagation, SGD, training loop); :class:`brent_forecast.models.mlp.
+NumpyMLPClassifier` exposes it as a scikit-learn estimator.
 
 Project constraints:
 
@@ -21,46 +22,14 @@ Key mathematical notes:
 """
 
 import logging
-from itertools import product
-from pathlib import Path
-from typing import Any, TypedDict
+from typing import Literal, TypedDict
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.metrics import roc_auc_score
-from sklearn.model_selection import TimeSeriesSplit
 
-from brent_forecast._types import FloatArray, IntArray, ModelResult
-from brent_forecast.config import ModelSettings
-from brent_forecast.evaluation.metrics import (
-    compute_metrics,
-    log_full_metrics,
-    plot_confusion_matrix,
-    plot_roc_curve,
-    save_figure,
-)
-from brent_forecast.models.tuning import GridResult, log_grid_results
+from brent_forecast._types import FloatArray, IntArray
 
 logger = logging.getLogger(__name__)
-
-MODEL_NAME = "MLP NumPy"
-
-# Hyperparameters accepted by ``train_mlp`` (values come from the configuration).
-TRAIN_KWARGS = frozenset(
-    {
-        "hidden_1",
-        "hidden_2",
-        "dropout_p",
-        "learning_rate",
-        "batch_size",
-        "max_epochs",
-        "patience",
-        "random_state",
-    }
-)
 
 Params = dict[str, FloatArray]
 """Network weights: ``W1, b1, W2, b2, W3, b3``."""
@@ -274,8 +243,10 @@ def train_mlp(
     patience: int,
     random_state: int,
     verbose: bool = True,
+    restore_best: bool = True,
+    monitor: Literal["auc", "loss"] = "auc",
 ) -> tuple[Params, list[EpochRecord]]:
-    """Train with mini-batch SGD, per-epoch shuffling and early stopping on val AUC.
+    """Train with mini-batch SGD, per-epoch shuffling and early stopping.
 
     Parameters
     ----------
@@ -294,16 +265,22 @@ def train_mlp(
     max_epochs
         Maximum number of epochs.
     patience
-        Epochs without val AUC improvement before stopping.
+        Epochs without improvement of the monitored validation metric before stopping.
     random_state
         Seed of the generator used for init, dropout and shuffling.
     verbose
         Log per-epoch progress (disabled during tuning).
+    restore_best
+        Return the weights of the best epoch (default) instead of the last one.
+    monitor
+        Early-stopping criterion: validation ROC AUC (higher is better) or
+        validation BCE loss (lower is better).
 
     Returns
     -------
     best_params : dict
-        Weights of the epoch with the best validation AUC.
+        Weights of the epoch with the best monitored metric (or of the last epoch
+        when ``restore_best`` is False).
     history : list of dict
         Loss and AUC per epoch.
     """
@@ -313,7 +290,7 @@ def train_mlp(
 
     params = initialize_parameters(n_in, hidden_1, hidden_2, rng)
 
-    best_auc = -np.inf
+    best_score = -np.inf
     best_params = {k: v.copy() for k, v in params.items()}
     best_epoch = 0
     epochs_no_improve = 0
@@ -349,9 +326,10 @@ def train_mlp(
             }
         )
 
-        improved = val_auc > best_auc
+        score = val_auc if monitor == "auc" else -val_loss
+        improved = score > best_score
         if improved:
-            best_auc = val_auc
+            best_score = score
             best_params = {k: v.copy() for k, v in params.items()}
             best_epoch = epoch
             epochs_no_improve = 0
@@ -378,8 +356,10 @@ def train_mlp(
             break
 
     if verbose:
-        logger.info("[MLP] Best val AUC: %.4f (epoch %d)", best_auc, best_epoch)
-    return best_params, history
+        logger.info(
+            "[MLP] Best monitored %s: %.4f (epoch %d)", monitor, abs(best_score), best_epoch
+        )
+    return (best_params if restore_best else params), history
 
 
 # ──────────────────────────────────────────────
@@ -397,178 +377,3 @@ def predict_proba(X: FloatArray, params: Params) -> FloatArray:
 def predict(X: FloatArray, params: Params, threshold: float = 0.5) -> IntArray:
     """Return hard 0/1 predictions."""
     return (predict_proba(X, params) >= threshold).astype(int)
-
-
-# ──────────────────────────────────────────────
-# 9. Hyperparameter tuning (manual search over TimeSeriesSplit)
-# ──────────────────────────────────────────────
-
-
-def tune_hyperparameters(
-    X_train: FloatArray,
-    y_train: FloatArray,
-    cv: TimeSeriesSplit,
-    config: ModelSettings,
-    scoring: str,
-    seed: int,
-) -> dict[str, Any]:
-    """Manual grid search over ``hidden_pair x learning_rate`` with TimeSeriesSplit.
-
-    Every combination is trained on each fold and scored by the mean fold
-    AUC. ``GridSearchCV`` is not used because the MLP is not an sklearn
-    estimator.
-
-    Returns
-    -------
-    dict
-        Full hyperparameters: ``config.params`` + ``random_state`` + best grid values.
-
-    Raises
-    ------
-    ValueError
-        If ``scoring`` is not ``"roc_auc"``, the only supported metric.
-    """
-    if scoring != "roc_auc":
-        raise ValueError(f"{MODEL_NAME} tuning only supports scoring='roc_auc', got {scoring!r}")
-
-    default_params = {**config.params, "random_state": seed}
-    base_kwargs = {k: v for k, v in default_params.items() if k in TRAIN_KWARGS}
-    hidden_pairs = config.grid["hidden_pair"]
-    learning_rates = config.grid["learning_rate"]
-    results: list[GridResult] = []
-
-    logger.info(
-        "[%s] Manual tuning: %d combos x %d folds",
-        MODEL_NAME,
-        len(hidden_pairs) * len(learning_rates),
-        cv.get_n_splits(),
-    )
-
-    for (h1, h2), lr in product(hidden_pairs, learning_rates):
-        fold_aucs = []
-        for tr_idx, va_idx in cv.split(X_train):
-            X_tr_f, y_tr_f = X_train[tr_idx], y_train[tr_idx]
-            X_va_f, y_va_f = X_train[va_idx], y_train[va_idx]
-
-            best_params, _ = train_mlp(
-                X_tr_f,
-                y_tr_f,
-                X_va_f,
-                y_va_f,
-                **{**base_kwargs, "hidden_1": h1, "hidden_2": h2, "learning_rate": lr},
-                verbose=False,
-            )
-            y_proba = predict_proba(X_va_f, best_params)
-            fold_aucs.append(float(roc_auc_score(y_va_f, y_proba)))
-
-        mean_auc = float(np.mean(fold_aucs))
-        std_auc = float(np.std(fold_aucs))
-        results.append(
-            {
-                "params": {"hidden_1": h1, "hidden_2": h2, "learning_rate": lr},
-                "mean_cv_auc": mean_auc,
-                "std_cv_auc": std_auc,
-            }
-        )
-        logger.info(
-            "[%s]   (H1=%s, H2=%s, lr=%s) -> CV AUC = %.4f ± %.4f",
-            MODEL_NAME,
-            h1,
-            h2,
-            lr,
-            mean_auc,
-            std_auc,
-        )
-
-    log_grid_results(MODEL_NAME, results, top_k=5)
-    best = max(results, key=lambda r: r["mean_cv_auc"])
-    return {**default_params, **best["params"]}
-
-
-# ──────────────────────────────────────────────
-# 10. Public wrapper (contract shared by all models)
-# ──────────────────────────────────────────────
-
-
-def train_and_evaluate(
-    X_train: FloatArray,
-    y_train: FloatArray,
-    X_val: FloatArray,
-    y_val: FloatArray,
-    feature_cols: list[str],
-    params: dict[str, Any],
-    plots_dir: Path,
-) -> ModelResult:
-    """Train the MLP, evaluate it on train and validation and save its plots.
-
-    ``feature_cols`` is unused; it keeps the signature shared by all models.
-
-    Returns
-    -------
-    dict
-        Same keys as the sklearn models; ``model`` is
-        ``{"params": weights, "history": history, "config": params}``.
-    """
-    logger.info("[%s] Training with params: %s", MODEL_NAME, params)
-
-    train_kwargs = {k: v for k, v in params.items() if k in TRAIN_KWARGS}
-    best_params, history = train_mlp(X_train, y_train, X_val, y_val, **train_kwargs)
-
-    y_proba_train = predict_proba(X_train, best_params)
-    y_proba_val = predict_proba(X_val, best_params)
-    y_pred_train = (y_proba_train >= 0.5).astype(int)
-    y_pred_val = (y_proba_val >= 0.5).astype(int)
-
-    metrics_train = compute_metrics(y_train, y_pred_train, y_proba_train)
-    metrics_val = compute_metrics(y_val, y_pred_val, y_proba_val)
-
-    log_full_metrics(metrics_train, "Train", MODEL_NAME)
-    log_full_metrics(metrics_val, "Val", MODEL_NAME)
-    logger.info(
-        "[%s] Epochs trained: %d | best val AUC: %.4f",
-        MODEL_NAME,
-        len(history),
-        max(h["val_auc"] for h in history),
-    )
-
-    plot_confusion_matrix(y_val, y_pred_val, MODEL_NAME, plots_dir)
-    plot_roc_curve(y_val, y_proba_val, MODEL_NAME, plots_dir)
-    _plot_training_curves(history, plots_dir)
-
-    return {
-        "model_name": MODEL_NAME,
-        "model": {"params": best_params, "history": history, "config": params},
-        "metrics_train": metrics_train,
-        "metrics_val": metrics_val,
-        "y_pred_val": y_pred_val,
-        "y_proba_val": y_proba_val,
-    }
-
-
-def _plot_training_curves(history: list[EpochRecord], save_dir: Path) -> Path:
-    """Save train/val loss and val AUC per epoch."""
-    epochs = [h["epoch"] for h in history]
-    train_l = [h["train_loss"] for h in history]
-    val_l = [h["val_loss"] for h in history]
-    val_aucs = [h["val_auc"] for h in history]
-
-    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-
-    axes[0].plot(epochs, train_l, label="train_loss")
-    axes[0].plot(epochs, val_l, label="val_loss")
-    axes[0].set_xlabel("Epoch")
-    axes[0].set_ylabel("BCE loss")
-    axes[0].set_title("Loss curve — MLP NumPy")
-    axes[0].legend()
-    axes[0].grid(alpha=0.3)
-
-    axes[1].plot(epochs, val_aucs, color="C2", label="val_auc")
-    axes[1].axhline(0.5, linestyle="--", color="gray", label="Random")
-    axes[1].set_xlabel("Epoch")
-    axes[1].set_ylabel("Val AUC")
-    axes[1].set_title("Validation AUC per epoch")
-    axes[1].legend()
-    axes[1].grid(alpha=0.3)
-
-    fig.tight_layout()
-    return save_figure(fig, save_dir, "training_curves_mlp_numpy.png")

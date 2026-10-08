@@ -13,8 +13,6 @@ from typing import Any, TypedDict
 
 from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
 
-from brent_forecast._types import FloatArray
-
 logger = logging.getLogger(__name__)
 
 
@@ -37,11 +35,11 @@ def make_time_series_cv(n_splits: int) -> TimeSeriesSplit:
 
 def grid_search(
     estimator: Any,
-    grid: Mapping[str, Sequence[Any]],
-    X_train: FloatArray,
-    y_train: FloatArray,
+    grid: Mapping[str, Sequence[Any]] | Sequence[Mapping[str, Sequence[Any]]],
+    X_train: Any,
+    y_train: Any,
     *,
-    cv: TimeSeriesSplit,
+    cv: Any,
     scoring: str,
     n_jobs: int,
     model_name: str,
@@ -53,7 +51,7 @@ def grid_search(
     estimator
         Unfitted sklearn estimator with the fixed hyperparameters.
     grid
-        Search space.
+        Search space (a dict, or a list of dicts as accepted by ``GridSearchCV``).
     X_train, y_train
         Training data.
     cv

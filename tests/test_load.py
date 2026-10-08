@@ -11,7 +11,7 @@ from brent_forecast.data.load import (
     load_oil_data,
     load_oil_prices,
 )
-from conftest import EVENTS_FILENAME, OIL_FILENAME, write_csv
+from conftest import DATE_BOUNDS, EVENTS_FILENAME, OIL_FILENAME, write_csv
 
 
 def test_load_oil_prices_parses_dates_and_strips_headers(tmp_path: Path) -> None:
@@ -93,7 +93,7 @@ def test_merge_fills_days_without_event(
 
 
 def test_load_oil_data_from_csv_files(raw_data_dir: Path, oil_frame: pd.DataFrame) -> None:
-    df = load_oil_data(raw_data_dir / OIL_FILENAME, raw_data_dir / EVENTS_FILENAME)
+    df = load_oil_data(raw_data_dir / OIL_FILENAME, raw_data_dir / EVENTS_FILENAME, DATE_BOUNDS)
 
     assert len(df) == len(oil_frame)
 
@@ -107,6 +107,7 @@ def test_load_oil_data_rejects_duplicated_event_dates(
         load_oil_data(
             write_csv(oil_frame, tmp_path / OIL_FILENAME),
             write_csv(events, tmp_path / EVENTS_FILENAME),
+            DATE_BOUNDS,
         )
 
 
@@ -126,7 +127,7 @@ def _valid_frame() -> pd.DataFrame:
 def test_validate_accepts_a_clean_frame(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level("INFO")
 
-    _validate(_valid_frame(), expected_rows=3)
+    _validate(_valid_frame(), expected_rows=3, bounds=DATE_BOUNDS)
 
     assert "Validation passed" in caplog.text
 
@@ -136,13 +137,13 @@ def test_validate_rejects_duplicated_dates(caplog: pytest.LogCaptureFixture) -> 
     df.loc[1, "date"] = df.loc[0, "date"]
 
     with pytest.raises(ValueError, match="1 error"):
-        _validate(df, expected_rows=3)
+        _validate(df, expected_rows=3, bounds=DATE_BOUNDS)
     assert "DUPLICATES" in caplog.text
 
 
 def test_validate_rejects_row_count_mismatch(caplog: pytest.LogCaptureFixture) -> None:
     with pytest.raises(ValueError):
-        _validate(_valid_frame(), expected_rows=4)
+        _validate(_valid_frame(), expected_rows=4, bounds=DATE_BOUNDS)
     assert "ROWS: expected 4, got 3" in caplog.text
 
 
@@ -153,7 +154,7 @@ def test_validate_rejects_null_events(column: str, caplog: pytest.LogCaptureFixt
     df.loc[0, column] = None
 
     with pytest.raises(ValueError):
-        _validate(df, expected_rows=3)
+        _validate(df, expected_rows=3, bounds=DATE_BOUNDS)
     assert f"NULLS in '{column}'" in caplog.text
 
 
@@ -172,7 +173,7 @@ def test_validate_rejects_unexpected_date_range(
     df["date"] = pd.to_datetime(dates)
 
     with pytest.raises(ValueError):
-        _validate(df, expected_rows=3)
+        _validate(df, expected_rows=3, bounds=DATE_BOUNDS)
     assert message in caplog.text
 
 
@@ -181,4 +182,17 @@ def test_validate_reports_every_error_at_once() -> None:
     df.loc[1, "date"] = df.loc[0, "date"]
 
     with pytest.raises(ValueError, match="2 error"):
-        _validate(df, expected_rows=5)
+        _validate(df, expected_rows=5, bounds=DATE_BOUNDS)
+
+
+def test_validate_uses_the_configured_bounds(caplog: pytest.LogCaptureFixture) -> None:
+    from datetime import date
+
+    from brent_forecast.data.load import DateBounds
+
+    strict = DateBounds(date(2010, 3, 1), date(2010, 12, 31), date(2027, 1, 1))
+
+    with pytest.raises(ValueError, match="2 error"):
+        _validate(_valid_frame(), expected_rows=3, bounds=strict)
+    assert "expected between 2010-03-01 and 2010-12-31" in caplog.text
+    assert "expected on or after 2027-01-01" in caplog.text

@@ -1,14 +1,16 @@
-"""Preprocessing pipeline for next-day Brent direction classification.
+"""Stateless dataset preparation for next-day Brent direction classification.
 
 Execution order (it matters):
 
-1. ``create_label``            -> label created BEFORE any filtering
-2. ``engineer_features``       -> transformations and feature selection
-3. ``handle_nulls``            -> drop rows with null features
-4. ``filter_features_by_vif``  -> multicollinearity filter (train rows only)
-5. ``split_temporal``          -> chronological train/val/test split
-6. ``winsorize_features``      -> clip outliers (percentiles fitted on train)
-7. ``scale_features``          -> standardisation (fitted on train only)
+1. ``create_label``       -> label created BEFORE any filtering
+2. ``engineer_features``  -> past-only transformations and feature list
+3. ``handle_nulls``       -> drop warm-up rows with null features
+4. ``split_temporal``     -> chronological train/val/test split
+
+Nothing here learns from the data. The fitted steps (VIF selection,
+winsorisation, scaling) live in the model pipelines
+(:mod:`brent_forecast.models.registry`), so they are fitted on training rows
+only, inside every split and cross-validation fold.
 
 After ``load_oil_data`` the ``event_type`` / ``event_severity`` /
 ``event_description`` columns are the GEOPOLITICAL ones; the original oil
@@ -16,18 +18,14 @@ dataset columns live in ``oil_event_*``.
 """
 
 import logging
+from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
-from statsmodels.stats.outliers_influence import variance_inflation_factor
 
-from brent_forecast._types import FloatArray
-from brent_forecast.config import PreprocessingSettings, SplitSettings
+from brent_forecast.config import SplitSettings
 
 logger = logging.getLogger(__name__)
-
-SplitArrays = tuple[FloatArray, FloatArray, FloatArray, FloatArray, FloatArray, FloatArray]
 
 
 # ──────────────────────────────────────────────
@@ -198,254 +196,80 @@ def handle_nulls(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame:
 
 
 # ──────────────────────────────────────────────
-# 4. Multicollinearity filter (VIF)
+# 4. Dataset assembly and chronological split
 # ──────────────────────────────────────────────
 
 
-def filter_features_by_vif(
-    df: pd.DataFrame,
-    feature_cols: list[str],
-    train_end_date: pd.Timestamp,
-    vif_threshold: float,
-) -> list[str]:
-    """Drop the highest-VIF feature, repeatedly, until all VIFs are below the threshold.
+class Dataset(NamedTuple):
+    """Model-ready frame: one row per labelled trading day."""
 
-    The Variance Inflation Factor measures how much the variance of a
-    coefficient is inflated by the other features; VIF > 10 means the feature
-    is almost a linear combination of the others.
+    frame: pd.DataFrame
+    """``date``, ``label`` and every engineered feature (no missing values)."""
+    feature_cols: list[str]
+    """Candidate feature columns, before the fitted VIF selection."""
 
-    The VIF is computed ONLY on training rows (``date < train_end_date``) so
-    that validation and test data do not influence which features survive.
+    @property
+    def features(self) -> pd.DataFrame:
+        """Return the feature matrix."""
+        return self.frame[self.feature_cols]
 
-    Parameters
-    ----------
-    df
-        Dataset with ``date`` and the candidate features.
-    feature_cols
-        Candidate feature names.
-    train_end_date
-        First date that is no longer part of the training set.
-    vif_threshold
-        Features are dropped while the maximum VIF is above this value.
+    @property
+    def target(self) -> pd.Series:
+        """Return the binary target."""
+        return self.frame["label"]
 
-    Returns
-    -------
-    list of str
-        Surviving features, in their original order.
+    @property
+    def dates(self) -> pd.Series:
+        """Return the trading day of every row."""
+        return self.frame["date"]
+
+
+def build_dataset(df: pd.DataFrame) -> Dataset:
+    """Label, engineer features and drop warm-up rows: every stateless step.
+
+    The fitted steps (VIF selection, winsorisation, scaling) are part of each
+    model pipeline instead, see :mod:`brent_forecast.models.registry`.
     """
-    train_mask = df["date"] < train_end_date
-    remaining = list(feature_cols)
-    logger.info(
-        "VIF filtering | initial features: %d | threshold VIF > %s", len(remaining), vif_threshold
-    )
-
-    while len(remaining) > 1:
-        X = df.loc[train_mask, remaining].to_numpy().astype(float)
-
-        vifs = []
-        for i in range(X.shape[1]):
-            try:
-                v = float(variance_inflation_factor(X, i))
-            except Exception:
-                v = float("inf")
-            vifs.append(v)
-
-        max_vif = max(vifs)
-        if max_vif <= vif_threshold:
-            break
-
-        worst_idx = vifs.index(max_vif)
-        worst_name = remaining[worst_idx]
-        vif_str = "inf" if not np.isfinite(max_vif) else f"{max_vif:.2f}"
-        logger.info("VIF dropped: %-25s VIF = %s", worst_name, vif_str)
-        remaining.pop(worst_idx)
-
-    # Final report of the surviving features
-    X_final = df.loc[train_mask, remaining].to_numpy().astype(float)
-    logger.info("VIF final features (%d):", len(remaining))
-    for i, name in enumerate(remaining):
-        try:
-            v = float(variance_inflation_factor(X_final, i))
-            v_str = "inf" if not np.isfinite(v) else f"{v:.2f}"
-        except Exception:
-            v_str = "n/a"
-        logger.info("  %-25s VIF = %s", name, v_str)
-
-    return remaining
+    logger.info("Building the dataset")
+    df = create_label(df)
+    df, feature_cols = engineer_features(df)
+    df = handle_nulls(df, feature_cols)
+    frame = df[["date", "label", *feature_cols]].reset_index(drop=True)
+    return Dataset(frame=frame, feature_cols=feature_cols)
 
 
-# ──────────────────────────────────────────────
-# 5. Strict chronological split
-# ──────────────────────────────────────────────
+class Split(NamedTuple):
+    """Chronological train / validation / test partition of a :class:`Dataset`."""
+
+    train: pd.DataFrame
+    val: pd.DataFrame
+    test: pd.DataFrame
 
 
-def split_temporal(
-    df: pd.DataFrame,
-    feature_cols: list[str],
-    train_end: pd.Timestamp,
-    val_end: pd.Timestamp,
-) -> SplitArrays:
+def split_temporal(frame: pd.DataFrame, split: SplitSettings) -> Split:
     """Split the dataset in strict chronological order.
 
     - Train: ``date < train_end`` (2010-2021 by default)
     - Validation: ``train_end <= date < val_end`` (2022-2023 by default)
     - Test: ``date >= val_end`` (2024-2026 by default)
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        ``X_train, X_val, X_test, y_train, y_val, y_test``.
     """
-    train_mask = df["date"] < train_end
-    val_mask = (df["date"] >= train_end) & (df["date"] < val_end)
-    test_mask = df["date"] >= val_end
-
-    X_train = df.loc[train_mask, feature_cols].to_numpy()
-    X_val = df.loc[val_mask, feature_cols].to_numpy()
-    X_test = df.loc[test_mask, feature_cols].to_numpy()
-
-    y_train = df.loc[train_mask, "label"].to_numpy()
-    y_val = df.loc[val_mask, "label"].to_numpy()
-    y_test = df.loc[test_mask, "label"].to_numpy()
-
+    train_end = pd.Timestamp(split.train_end)
+    val_end = pd.Timestamp(split.val_end)
+    dates = frame["date"]
+    parts = Split(
+        train=frame[dates < train_end],
+        val=frame[(dates >= train_end) & (dates < val_end)],
+        test=frame[dates >= val_end],
+    )
     logger.info(
         "Split sizes | train: %d | val: %d | test: %d",
-        X_train.shape[0],
-        X_val.shape[0],
-        X_test.shape[0],
+        len(parts.train),
+        len(parts.val),
+        len(parts.test),
     )
     logger.info(
         "Train class balance | class 1: %.2f%% | class 0: %.2f%%",
-        y_train.mean() * 100,
-        (1 - y_train.mean()) * 100,
+        parts.train["label"].mean() * 100,
+        (1 - parts.train["label"].mean()) * 100,
     )
-    return X_train, X_val, X_test, y_train, y_val, y_test
-
-
-# ──────────────────────────────────────────────
-# 6. Winsorisation
-# ──────────────────────────────────────────────
-
-
-def winsorize_features(
-    X_train: FloatArray,
-    X_val: FloatArray,
-    X_test: FloatArray,
-    feature_cols: list[str],
-    lower: float,
-    upper: float,
-) -> tuple[FloatArray, FloatArray, FloatArray]:
-    """Clip the return features to the ``[lower, upper]`` percentiles of train.
-
-    Motivation: the COVID crash (March 2020) produced returns > 10 that distort
-    LogReg, MLP and SVM. Percentiles are computed ONLY on train to avoid
-    leakage. The arrays are modified in place and also returned.
-    """
-    return_idx = [i for i, c in enumerate(feature_cols) if "ret" in c or "return" in c]
-
-    for idx in return_idx:
-        lo = np.percentile(X_train[:, idx], lower * 100)
-        hi = np.percentile(X_train[:, idx], upper * 100)
-        X_train[:, idx] = np.clip(X_train[:, idx], lo, hi)
-        X_val[:, idx] = np.clip(X_val[:, idx], lo, hi)
-        X_test[:, idx] = np.clip(X_test[:, idx], lo, hi)
-
-    logger.info("Winsorized return features: %d", len(return_idx))
-    return X_train, X_val, X_test
-
-
-# ──────────────────────────────────────────────
-# 7. Scaling
-# ──────────────────────────────────────────────
-
-
-def scale_features(
-    X_train: FloatArray,
-    X_val: FloatArray,
-    X_test: FloatArray,
-) -> tuple[FloatArray, FloatArray, FloatArray, StandardScaler]:
-    """Standardise features to zero mean and unit variance.
-
-    ``fit`` is called ONLY on train; validation and test only get ``transform``.
-    """
-    scaler = StandardScaler()
-    X_train_sc: FloatArray = scaler.fit_transform(X_train)
-    X_val_sc: FloatArray = scaler.transform(X_val)
-    X_test_sc: FloatArray = scaler.transform(X_test)
-
-    logger.debug("Scaled train mean (first 3): %s", X_train_sc.mean(axis=0)[:3].round(4))
-    logger.debug("Scaled train std (first 3): %s", X_train_sc.std(axis=0)[:3].round(4))
-    return X_train_sc, X_val_sc, X_test_sc, scaler
-
-
-# ──────────────────────────────────────────────
-# Full pipeline
-# ──────────────────────────────────────────────
-
-
-def preprocess(
-    df: pd.DataFrame,
-    split: SplitSettings,
-    preprocessing: PreprocessingSettings,
-) -> tuple[
-    FloatArray,
-    FloatArray,
-    FloatArray,
-    FloatArray,
-    FloatArray,
-    FloatArray,
-    StandardScaler,
-    list[str],
-]:
-    """Run the full preprocessing: from the merged DataFrame to model-ready arrays.
-
-    Parameters
-    ----------
-    df
-        Output of ``load_oil_data``.
-    split
-        Chronological split boundaries.
-    preprocessing
-        VIF and winsorisation thresholds.
-
-    Returns
-    -------
-    X_train, X_val, X_test : numpy.ndarray
-        Scaled feature matrices.
-    y_train, y_val, y_test : numpy.ndarray
-        Float labels.
-    scaler : sklearn.preprocessing.StandardScaler
-        Scaler fitted on train.
-    feature_cols : list of str
-        Feature names, in column order.
-    """
-    logger.info("Preprocessing pipeline started")
-
-    df = create_label(df)
-    df, feature_cols = engineer_features(df)
-    df = handle_nulls(df, feature_cols)
-    train_end = pd.Timestamp(split.train_end)
-    val_end = pd.Timestamp(split.val_end)
-    feature_cols = filter_features_by_vif(df, feature_cols, train_end, preprocessing.vif_threshold)
-
-    X_train, X_val, X_test, y_train, y_val, y_test = split_temporal(
-        df, feature_cols, train_end, val_end
-    )
-    X_train, X_val, X_test = winsorize_features(
-        X_train,
-        X_val,
-        X_test,
-        feature_cols,
-        preprocessing.winsor_lower,
-        preprocessing.winsor_upper,
-    )
-    X_train_sc, X_val_sc, X_test_sc, scaler = scale_features(X_train, X_val, X_test)
-
-    logger.info(
-        "Preprocessing done | X_train %s | X_val %s | X_test %s",
-        X_train_sc.shape,
-        X_val_sc.shape,
-        X_test_sc.shape,
-    )
-
-    return X_train_sc, X_val_sc, X_test_sc, y_train, y_val, y_test, scaler, feature_cols
+    return parts

@@ -34,6 +34,14 @@ def test_run_writes_metrics_and_plots(fast_settings: Settings, small_raw_data_di
     # Per model: confusion (val + test), ROC (val) and learning curve; plus 4 summary figures.
     assert len(plots) == 4 * 4 + 4
 
+    models_dir = fast_settings.paths.models_dir
+    assert sorted(p.name for p in models_dir.glob("*.joblib")) == [
+        "logistic_regression.joblib",
+        "mlp.joblib",
+        "random_forest.joblib",
+        "svm.joblib",
+    ]
+
 
 @pytest.mark.filterwarnings("ignore::FutureWarning")
 def test_run_is_deterministic(fast_settings: Settings, small_raw_data_dir: Path) -> None:
