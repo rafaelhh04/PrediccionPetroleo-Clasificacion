@@ -214,6 +214,11 @@ of stable signal looks like.
 
 ## Results
 
+> **Which numbers are real?** Only the first table, an old run of the original code on the Kaggle data.
+> Every table after it comes from the **synthetic** dataset (a random walk with the Kaggle schema) and
+> demonstrates the evaluation machinery, not the Brent market. The [model card](docs/MODEL_CARD.md)
+> gathers intended use, metrics with intervals, limitations and risks.
+
 Reference run of the original project on the Kaggle data (ROC AUC). It predates the phase-3 fixes
 (e.g. the last-row labelling bug) and has not been re-run on real data yet: Kaggle is not reachable from
 the development environment, so later numbers are reproduced on the synthetic dataset used in tests.
@@ -280,6 +285,7 @@ Effect of the v2 features (same protocol; v1 = 14 features, v2 = 29 before the V
 │   ├── default.yaml            # single source of configuration values
 │   └── data_checksums.json     # SHA-256 of the raw CSVs
 ├── docs/ROADMAP.md             # professionalisation plan and progress log
+├── docs/MODEL_CARD.md          # intended use, data, metrics with CIs, limitations and risks
 ├── src/brent_forecast/
 │   ├── cli.py                  # Typer CLI (`brent`)
 │   ├── config.py               # typed settings (pydantic-settings)

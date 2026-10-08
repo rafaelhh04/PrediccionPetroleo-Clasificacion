@@ -118,6 +118,11 @@ block bootstrap de la diferencia de Sharpe frente a buy & hold.
 
 ## Resultados (AUC-ROC)
 
+> **¿Qué cifras son reales?** Solo la primera tabla (ejecución antigua del código original con los datos de
+> Kaggle). Todas las demás proceden del dataset **sintético** (paseo aleatorio con el esquema de Kaggle) y
+> demuestran la maquinaria de evaluación, no el mercado del Brent. La [model card](docs/MODEL_CARD.md)
+> reúne uso previsto, métricas con intervalos, limitaciones y riesgos.
+
 Ejecución de referencia del proyecto original con los datos de Kaggle. Es anterior a las correcciones de
 la Fase 3 (p. ej. el bug de la última etiqueta) y aún no se ha repetido con datos reales: Kaggle no es
 accesible desde el entorno de desarrollo, así que las cifras posteriores se reproducen con el dataset
@@ -158,6 +163,7 @@ de 50 estimaciones ruidosas) y cayó a 0.450 fuera de muestra.
 ```text
 ├── configs/                    # default.yaml (configuración) y data_checksums.json
 ├── docs/ROADMAP.md             # plan de profesionalización y registro de progreso
+├── docs/MODEL_CARD.md          # uso previsto, datos, métricas con IC, limitaciones y riesgos
 ├── src/brent_forecast/
 │   ├── cli.py                  # CLI con Typer (`brent`)
 │   ├── config.py               # configuración tipada (pydantic-settings)
