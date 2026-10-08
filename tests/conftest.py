@@ -219,7 +219,7 @@ def fast_settings(tmp_path: Path) -> Settings:
             "test_window": 63,
             "rolling_train_size": 1260,
         },
-        evaluation={"learning_curve_train_sizes": [0.5, 1.0]},
+        evaluation={"learning_curve_train_sizes": [0.5, 1.0], "bootstrap_resamples": 200},
         models=FAST_MODELS,
     )
 

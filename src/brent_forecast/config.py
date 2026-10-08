@@ -60,6 +60,16 @@ class PathsSettings(_Section):
         """Machine-readable metrics of the last training run."""
         return self.results_dir / "metrics.json"
 
+    @property
+    def report_file(self) -> Path:
+        """Markdown statistical report written by ``brent report``."""
+        return self.results_dir / "report.md"
+
+    @property
+    def report_data_file(self) -> Path:
+        """Machine-readable counterpart of the report."""
+        return self.results_dir / "report.json"
+
 
 class DataSettings(_Section):
     """Dataset source and canonical file names."""
@@ -121,9 +131,14 @@ class ValidationSettings(_Section):
 
 
 class EvaluationSettings(_Section):
-    """Evaluation and reporting options."""
+    """Evaluation and reporting options (``brent report``)."""
 
     learning_curve_train_sizes: list[float] = Field(min_length=1)
+    bootstrap_resamples: int = Field(ge=100)
+    block_length: int = Field(ge=1)
+    confidence_level: float = Field(gt=0.5, lt=1.0)
+    alpha: float = Field(gt=0.0, lt=0.5)
+    reliability_bins: int = Field(ge=2)
 
 
 class ModelSettings(_Section):

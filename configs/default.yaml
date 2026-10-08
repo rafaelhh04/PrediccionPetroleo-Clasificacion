@@ -50,6 +50,12 @@ validation:
 
 evaluation:
   learning_curve_train_sizes: [0.1, 0.25, 0.5, 0.75, 1.0]
+  # `brent report`: circular block bootstrap of the out-of-sample predictions.
+  bootstrap_resamples: 2000
+  block_length: 21          # ~1 trading month: keeps short-range serial dependence
+  confidence_level: 0.95
+  alpha: 0.05               # significance level, after Holm correction
+  reliability_bins: 10      # quantile bins of the reliability diagram
 
 # `params` are the fixed hyperparameters; `grid` is the search space.
 # random_state is injected from `seed` for every model.

@@ -28,6 +28,7 @@ import numpy as np
 from sklearn.model_selection import cross_val_score
 
 from brent_forecast.config import Settings
+from brent_forecast.data.download import load_checksums, sha256sum
 from brent_forecast.data.load import DateBounds, load_oil_data
 from brent_forecast.evaluation.learning_curves import plot_learning_curve, plot_training_curves
 from brent_forecast.evaluation.metrics import log_full_metrics, plot_confusion_matrix
@@ -137,6 +138,7 @@ def run(settings: Settings) -> None:
                 oos["label"], (preds.proba >= 0.5).astype(int), f"{name} (oos)", paths.plots_dir
             )
         summary[name] = {
+            "key": key,
             "kind": kind,
             "cv": cv_scores[name],
             "oos": metrics,
@@ -210,6 +212,20 @@ def _save_metrics(
             "tuning_splits": val.tuning_splits,
             "n_windows": n_windows,
         },
+        "data": _data_provenance(settings),
         "models": summary,
     }
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _data_provenance(settings: Settings) -> dict[str, Any]:
+    """SHA-256 of the input files and whether they match the recorded Kaggle digests.
+
+    ``matches_recorded_checksums`` is ``None`` when no digest has been recorded,
+    in which case the results cannot be attributed to the published dataset.
+    """
+    paths, data = settings.paths, settings.data
+    recorded = load_checksums(paths.checksums_file, data)
+    actual = {name: sha256sum(paths.data_dir / name) for name in data.filenames}
+    matches = None if None in recorded.values() else recorded == actual
+    return {"sha256": actual, "matches_recorded_checksums": matches}
