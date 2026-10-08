@@ -57,6 +57,13 @@ evaluation:
   alpha: 0.05               # significance level, after Holm correction
   reliability_bins: 10      # quantile bins of the reliability diagram
 
+# Economic backtest in `brent report`: long when P(up) >= threshold, flat (or short) otherwise.
+backtest:
+  cost_bps: 5.0             # cost per unit of turnover, in basis points (commission + slippage)
+  threshold: 0.5
+  allow_short: false
+  periods_per_year: 252     # trading days, to annualise returns and Sharpe ratios
+
 # `params` are the fixed hyperparameters; `grid` is the search space.
 # random_state is injected from `seed` for every model.
 models:

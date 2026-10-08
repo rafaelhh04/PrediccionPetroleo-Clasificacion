@@ -114,7 +114,7 @@ def run(settings: Settings) -> None:
     )
     n_windows = eval_cv.get_n_splits(X_all)
     logger.info("[3/5] Walk-forward evaluation: %d windows with %r", n_windows, eval_cv)
-    oos = parts.test[["date", "label"]].copy()
+    oos = parts.test[["date", "label", "next_return"]].copy()
     oos["window"] = 0
     candidates: dict[str, tuple[str, str, Any]] = {
         key: (name, "model", build_pipeline(key, best_params[key], settings.preprocessing))

@@ -45,7 +45,8 @@ def test_run_writes_predictions_metrics_models_and_plots(
 
     predictions = pd.read_csv(paths.predictions_file, parse_dates=["date"])
     probas = [f"proba_{k}" for k in KEYS + BASELINE_KEYS]
-    assert list(predictions.columns) == ["date", "label", "window", *probas]
+    assert list(predictions.columns) == ["date", "label", "next_return", "window", *probas]
+    assert ((predictions["next_return"] > 0) == (predictions["label"] == 1)).all()
     assert predictions["date"].is_monotonic_increasing
     assert predictions["window"].nunique() == protocol["n_windows"]
     assert predictions[probas].notna().all().all()
@@ -71,6 +72,7 @@ def test_run_writes_predictions_metrics_models_and_plots(
 
     report = generate_report(fast_settings).read_text()
     assert "unverified" in report
+    assert "## Economic backtest" in report
     assert all(f"| {name} |" in report for name in MODELS + BASELINES)
 
 

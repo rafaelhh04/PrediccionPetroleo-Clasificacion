@@ -10,7 +10,10 @@ Reads the artefacts written by ``brent train`` (``predictions.csv`` and
 2. Every model against the reference baseline (the baseline with the highest
    out-of-sample AUC): AUC difference with a paired block-bootstrap interval,
    DeLong p-value and Holm-adjusted p-value.
-3. A conclusion derived mechanically from those numbers.
+3. Economic backtest: every candidate as a long/flat strategy net of costs,
+   against buy & hold, with a paired block-bootstrap interval of the Sharpe
+   ratio difference.
+4. A conclusion derived mechanically from those numbers.
 
 Every bootstrap uses the same seed, so all candidates are resampled on the
 same days (paired comparison).
@@ -19,12 +22,20 @@ same days (paired comparison).
 import json
 import logging
 from dataclasses import asdict
+from functools import partial
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
-from brent_forecast.config import EvaluationSettings, Settings
+from brent_forecast.config import BacktestSettings, EvaluationSettings, Settings
+from brent_forecast.evaluation.backtest import (
+    performance,
+    plot_equity,
+    positions,
+    sharpe_difference,
+    strategy_returns,
+)
 from brent_forecast.evaluation.statistics import (
     BootstrapOptions,
     accuracy,
@@ -44,11 +55,15 @@ logger = logging.getLogger(__name__)
 CLIMATOLOGY_KEY = "majority"
 """Baseline used as the reference forecast of the Brier skill score."""
 
+BUY_AND_HOLD = "Buy & hold (always long)"
+"""Reference strategy of the backtest."""
+
 
 def build_report(
     predictions: pd.DataFrame,
     metrics: dict[str, Any],
     evaluation: EvaluationSettings,
+    backtest: BacktestSettings,
     seed: int,
 ) -> dict[str, Any]:
     """Compute every statistic of the report as a JSON-serialisable dict."""
@@ -97,6 +112,8 @@ def build_report(
             adjusted[name] < evaluation.alpha and comparison["delta_auc"]["low"] > 0
         )
 
+    trading = _backtest(predictions, candidates, backtest, boot)
+
     return {
         "protocol": metrics["protocol"],
         "data": metrics.get("data", {}),
@@ -108,15 +125,66 @@ def build_report(
         "candidates": per_candidate,
         "reference_baseline": reference,
         "comparisons": comparisons,
-        "conclusion": _conclusion(per_candidate, comparisons, reference, evaluation.alpha),
+        "backtest": {"settings": backtest.model_dump(), "strategies": trading},
+        "conclusion": _conclusion(
+            per_candidate, comparisons, trading, reference, evaluation.alpha, backtest
+        ),
     }
+
+
+def strategies(
+    predictions: pd.DataFrame, candidates: dict[str, dict[str, Any]], backtest: BacktestSettings
+) -> dict[str, pd.DataFrame]:
+    """Daily positions and returns of buy & hold and of every candidate's strategy."""
+    next_return = predictions["next_return"]
+    out = {
+        BUY_AND_HOLD: strategy_returns(
+            pd.Series(1.0, index=predictions.index), next_return, backtest.cost_bps
+        )
+    }
+    for name, m in candidates.items():
+        position = positions(
+            predictions[f"proba_{m['key']}"], backtest.threshold, allow_short=backtest.allow_short
+        )
+        out[name] = strategy_returns(position, next_return, backtest.cost_bps)
+    return out
+
+
+def _backtest(
+    predictions: pd.DataFrame,
+    candidates: dict[str, dict[str, Any]],
+    backtest: BacktestSettings,
+    boot: BootstrapOptions,
+) -> dict[str, dict[str, Any]]:
+    """Measure every strategy and its Sharpe difference against buy & hold."""
+    runs = strategies(predictions, candidates, backtest)
+    benchmark = runs[BUY_AND_HOLD]["net"].to_numpy()
+    delta_sharpe = partial(sharpe_difference, periods_per_year=backtest.periods_per_year)
+    out: dict[str, dict[str, Any]] = {}
+    for name, returns in runs.items():
+        is_reference = name == BUY_AND_HOLD
+        delta = (
+            None
+            if is_reference
+            else bootstrap_interval(
+                delta_sharpe, returns["net"].to_numpy(), benchmark, **boot
+            ).as_dict()
+        )
+        out[name] = {
+            "kind": "reference" if is_reference else candidates[name]["kind"],
+            **performance(returns, backtest.periods_per_year),
+            "delta_sharpe": delta,
+        }
+    return out
 
 
 def _conclusion(
     per_candidate: dict[str, dict[str, Any]],
     comparisons: dict[str, dict[str, Any]],
+    trading: dict[str, dict[str, Any]],
     reference: str,
     alpha: float,
+    backtest: BacktestSettings,
 ) -> list[str]:
     """Plain-language findings derived only from the computed statistics."""
     models = list(comparisons)
@@ -125,6 +193,7 @@ def _conclusion(
     above_chance = [n for n in models if per_candidate[n]["auc"]["low"] > 0.5]
     accurate = [n for n in models if per_candidate[n]["accuracy_test"]["p_value"] < alpha]
     calibrated = [n for n in models if (per_candidate[n]["brier_skill"] or 0.0) > 0]
+    profitable = [n for n in models if trading[n]["delta_sharpe"]["low"] > 0]
 
     lines: list[str] = []
     if winners:
@@ -153,7 +222,14 @@ def _conclusion(
         if calibrated
         else "No model's probabilities beat the climatological forecast (Brier skill <= 0)."
     )
-    if not winners and not above_chance:
+    costs = f"{backtest.cost_bps:g} bps per trade"
+    lines.append(
+        f"Sharpe ratio significantly above buy & hold after costs ({costs}): {_names(profitable)}."
+        if profitable
+        else f"No model's strategy has a significantly higher Sharpe ratio than buy & hold "
+        f"after costs ({costs}); buy & hold Sharpe: {trading[BUY_AND_HOLD]['sharpe']:.2f}."
+    )
+    if not winners and not above_chance and not profitable:
         lines.append(
             "Conclusion: the evidence does not support next-day directional skill; "
             "the models should be treated as equivalent to a naive forecast."
@@ -220,6 +296,29 @@ def render_markdown(report: dict[str, Any]) -> str:
             f"{c['delong']['p_value']:.3f} | {c['p_holm']:.3f} | "
             f"{'yes' if c['significant'] else 'no'} |"
         )
+    bt = report["backtest"]["settings"]
+    short = "long/short" if bt["allow_short"] else "long/flat"
+    out += [
+        "",
+        "## Economic backtest",
+        "",
+        f"{short.capitalize()} strategy: long when P(up) >= {bt['threshold']}, "
+        f"costs {bt['cost_bps']:g} bps per unit of turnover, zero risk-free rate.",
+        "",
+        f"| Strategy | Kind | CAGR | Volatility | Sharpe | ΔSharpe vs B&H [{level} % CI] | "
+        "Max drawdown | Hit ratio | Exposure | Trades |",
+        "|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for name, st in report["backtest"]["strategies"].items():
+        delta = (
+            "—" if st["delta_sharpe"] is None else _ci(st["delta_sharpe"], signed=True, digits=2)
+        )
+        hit = "—" if st["hit_ratio"] is None else f"{st['hit_ratio']:.3f}"
+        out.append(
+            f"| {name} | {st['kind']} | {st['cagr']:+.2%} | {st['volatility']:.2%} | "
+            f"{st['sharpe']:.2f} | {delta} | {st['max_drawdown']:.2%} | {hit} | "
+            f"{st['exposure']:.0%} | {st['n_trades']:.0f} |"
+        )
     out += ["", "## Conclusion", ""]
     out += [f"- {line}" for line in report["conclusion"]]
     out += [
@@ -231,8 +330,8 @@ def render_markdown(report: dict[str, Any]) -> str:
     return "\n".join(out)
 
 
-def _ci(interval: dict[str, float], *, signed: bool = False) -> str:
-    fmt = "+.4f" if signed else ".4f"
+def _ci(interval: dict[str, float], *, signed: bool = False, digits: int = 4) -> str:
+    fmt = f"{'+' if signed else ''}.{digits}f"
     return f"{interval['estimate']:{fmt}} [{interval['low']:{fmt}}, {interval['high']:{fmt}}]"
 
 
@@ -256,8 +355,12 @@ def generate_report(settings: Settings) -> Path:
     predictions = pd.read_csv(paths.predictions_file, parse_dates=["date"])
     metrics = json.loads(paths.metrics_file.read_text(encoding="utf-8"))
 
-    report = build_report(predictions, metrics, settings.evaluation, settings.seed)
+    report = build_report(
+        predictions, metrics, settings.evaluation, settings.backtest, settings.seed
+    )
     models = {n: m for n, m in metrics["models"].items() if m["kind"] == "model"}
+    runs = strategies(predictions, models, settings.backtest)
+    plot_equity(predictions["date"], {n: r["net"] for n, r in runs.items()}, paths.plots_dir)
     plot_reliability(
         predictions["label"],
         {n: predictions[f"proba_{m['key']}"] for n, m in models.items()},
