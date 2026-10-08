@@ -61,6 +61,11 @@ class PathsSettings(_Section):
         return self.results_dir / "metrics.json"
 
     @property
+    def explain_dir(self) -> Path:
+        """Feature importances and explanation summary written by ``brent explain``."""
+        return self.results_dir / "explain"
+
+    @property
     def report_file(self) -> Path:
         """Markdown statistical report written by ``brent report``."""
         return self.results_dir / "report.md"
@@ -171,6 +176,15 @@ class SearchSpace(_Section):
         return self
 
 
+class ExplainSettings(_Section):
+    """Model explanations written by ``brent explain``."""
+
+    models: list[str] = Field(min_length=1)
+    permutation_repeats: int = Field(ge=1)
+    background_rows: int = Field(ge=10)
+    max_explained_rows: int = Field(ge=1)
+
+
 class ModelSettings(_Section):
     """Fixed hyperparameters and search space of one model.
 
@@ -226,6 +240,7 @@ class Settings(BaseSettings):
     evaluation: EvaluationSettings
     backtest: BacktestSettings
     tuning: TuningSettings
+    explain: ExplainSettings
     models: ModelsSettings
 
     @classmethod
