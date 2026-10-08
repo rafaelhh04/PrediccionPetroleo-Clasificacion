@@ -1,10 +1,7 @@
-"""Learning curves with TimeSeriesSplit.
+"""Learning curves (any estimator) and the per-epoch training curves of the NumPy MLP.
 
-sklearn models (LogReg/SVM/RF) use ``sklearn.model_selection.learning_curve``.
-The NumPy MLP is not sklearn-compatible, so its curve is computed manually by
-retraining ``train_mlp`` on growing subsets of every fold.
-
-Figures are saved as ``<plots_dir>/learning_curve_<model>.png``.
+Figures are saved as ``<plots_dir>/learning_curve_<model>.png`` and
+``<plots_dir>/training_curves_mlp_numpy.png``.
 """
 
 import logging
@@ -18,30 +15,30 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
-from sklearn.metrics import roc_auc_score
-from sklearn.model_selection import TimeSeriesSplit, learning_curve
+from sklearn.model_selection import learning_curve
 
 from brent_forecast._types import FloatArray
 from brent_forecast.evaluation.metrics import safe_name, save_figure
-from brent_forecast.models.neural_network import TRAIN_KWARGS, predict_proba, train_mlp
+from brent_forecast.models.neural_network import EpochRecord
 
 logger = logging.getLogger(__name__)
 
 
-def plot_learning_curve_sklearn(
+def plot_learning_curve(
     estimator: Any,
-    X_train: FloatArray,
-    y_train: FloatArray,
+    X_train: Any,
+    y_train: Any,
     model_name: str,
     *,
-    cv: TimeSeriesSplit,
+    cv: Any,
     scoring: str,
     train_sizes: Sequence[float],
     plots_dir: Path,
 ) -> Path:
-    """Compute and save the learning curve of an sklearn estimator.
+    """Compute and save the learning curve of an estimator or pipeline.
 
-    ``learning_curve`` clones the estimator and refits it on every fold.
+    ``learning_curve`` clones the estimator and refits it on growing prefixes
+    of every training fold, so the fitted preprocessing steps are refitted too.
 
     Returns
     -------
@@ -58,64 +55,40 @@ def plot_learning_curve_sklearn(
         scoring=scoring,
         n_jobs=-1,
     )
+    for size, tr, va in zip(sizes, train_scores, val_scores, strict=True):
+        logger.info(
+            "  n=%d -> train AUC %.4f | CV AUC %.4f", size, float(np.mean(tr)), float(np.mean(va))
+        )
     return _save_learning_curve_plot(sizes, train_scores, val_scores, model_name, plots_dir)
 
 
-def plot_learning_curve_mlp(
-    X_train: FloatArray,
-    y_train: FloatArray,
-    mlp_params: dict[str, Any],
-    *,
-    cv: TimeSeriesSplit,
-    train_sizes: Sequence[float],
-    plots_dir: Path,
-    model_name: str = "MLP NumPy",
-) -> Path:
-    """Compute and save the learning curve of the NumPy MLP.
+def plot_training_curves(history: Sequence[EpochRecord], plots_dir: Path) -> Path:
+    """Save the NumPy MLP's train/validation loss and validation AUC per epoch."""
+    epochs = [h["epoch"] for h in history]
+    train_l = [h["train_loss"] for h in history]
+    val_l = [h["val_loss"] for h in history]
+    val_aucs = [h["val_auc"] for h in history]
 
-    For every relative size, the MLP is trained on the first N samples of each
-    TimeSeriesSplit training fold (keeping temporal order); mean and std of the
-    train and validation AUC are reported.
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
 
-    Returns
-    -------
-    pathlib.Path
-        Path of the saved PNG.
-    """
-    logger.info("Computing manual learning curve for %s", model_name)
-    sizes_rel = np.asarray(train_sizes)
-    train_scores = []
-    val_scores = []
+    axes[0].plot(epochs, train_l, label="train_loss")
+    axes[0].plot(epochs, val_l, label="val_loss")
+    axes[0].set_xlabel("Epoch")
+    axes[0].set_ylabel("BCE loss")
+    axes[0].set_title("Loss curve — MLP NumPy")
+    axes[0].legend()
+    axes[0].grid(alpha=0.3)
 
-    train_kwargs = {k: v for k, v in mlp_params.items() if k in TRAIN_KWARGS}
+    axes[1].plot(epochs, val_aucs, color="C2", label="val_auc")
+    axes[1].axhline(0.5, linestyle="--", color="gray", label="Random")
+    axes[1].set_xlabel("Epoch")
+    axes[1].set_ylabel("Val AUC")
+    axes[1].set_title("Validation AUC per epoch (early-stopping hold-out)")
+    axes[1].legend()
+    axes[1].grid(alpha=0.3)
 
-    for frac in sizes_rel:
-        size_train = []
-        size_val = []
-        for tr_idx, va_idx in cv.split(X_train):
-            n_use = max(50, int(len(tr_idx) * frac))
-            tr_sub = tr_idx[:n_use]
-
-            X_tr, y_tr = X_train[tr_sub], y_train[tr_sub]
-            X_va, y_va = X_train[va_idx], y_train[va_idx]
-            best_params, _ = train_mlp(X_tr, y_tr, X_va, y_va, verbose=False, **train_kwargs)
-
-            size_train.append(roc_auc_score(y_tr, predict_proba(X_tr, best_params)))
-            size_val.append(roc_auc_score(y_va, predict_proba(X_va, best_params)))
-
-        train_scores.append(size_train)
-        val_scores.append(size_val)
-        logger.info(
-            "  frac=%.2f -> train AUC %.4f | CV AUC %.4f",
-            frac,
-            np.mean(size_train),
-            np.mean(size_val),
-        )
-
-    sizes_abs = (sizes_rel * len(X_train)).astype(int)
-    return _save_learning_curve_plot(
-        sizes_abs, np.array(train_scores), np.array(val_scores), model_name, plots_dir
-    )
+    fig.tight_layout()
+    return save_figure(fig, plots_dir, "training_curves_mlp_numpy.png")
 
 
 def _save_learning_curve_plot(

@@ -3,23 +3,17 @@
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.preprocessing import StandardScaler
 
-from brent_forecast.config import PreprocessingSettings, SplitSettings
+from brent_forecast.config import SplitSettings
 from brent_forecast.features.preprocessing import (
     _check_label_alignment,
+    build_dataset,
     create_label,
     engineer_features,
-    filter_features_by_vif,
     handle_nulls,
-    preprocess,
-    scale_features,
     split_temporal,
-    winsorize_features,
 )
 
-TRAIN_END = pd.Timestamp("2022-01-01")
-VAL_END = pd.Timestamp("2024-01-01")
 EXPECTED_FEATURES = [
     "dxy_index",
     "vix",
@@ -205,60 +199,9 @@ def test_handle_nulls_forward_fills_vix() -> None:
     assert out["vix"].tolist() == [10.0, 10.0, 12.0]
 
 
-# ── VIF filter ────────────────────────────────────────────────
-
-
-def _collinear_frame(n: int = 400) -> pd.DataFrame:
-    rng = np.random.default_rng(0)
-    a = rng.normal(size=n)
-    b = rng.normal(size=n)
-    return pd.DataFrame(
-        {
-            "date": pd.bdate_range("2019-01-01", periods=n),
-            "a": a,
-            "b": b,
-            "a_copy": a + 1e-3 * rng.normal(size=n),
-            "c": rng.normal(size=n),
-        }
-    )
-
-
-def test_vif_drops_collinear_features() -> None:
-    df = _collinear_frame()
-
-    kept = filter_features_by_vif(df, ["a", "b", "a_copy", "c"], TRAIN_END, vif_threshold=10.0)
-
-    assert ("a" in kept) != ("a_copy" in kept)
-    assert {"b", "c"} <= set(kept)
-
-
-def test_vif_keeps_everything_under_a_high_threshold() -> None:
-    df = _collinear_frame()
-
-    kept = filter_features_by_vif(df, ["a", "b", "a_copy", "c"], TRAIN_END, vif_threshold=1e12)
-
-    assert kept == ["a", "b", "a_copy", "c"]
-
-
-def test_vif_preserves_order_and_stops_at_one_feature() -> None:
-    df = _collinear_frame()
-
-    assert filter_features_by_vif(df, ["c"], TRAIN_END, vif_threshold=0.5) == ["c"]
-
-
-@pytest.mark.filterwarnings("ignore::UserWarning")
-@pytest.mark.filterwarnings("ignore::RuntimeWarning")
-def test_vif_handles_perfect_collinearity() -> None:
-    df = _collinear_frame()
-    df["a_exact"] = df["a"]
-
-    kept = filter_features_by_vif(df, ["a", "a_exact", "b"], TRAIN_END, vif_threshold=10.0)
-
-    assert ("a" in kept) != ("a_exact" in kept)
-    assert "b" in kept
-
-
 # ── split_temporal ────────────────────────────────────────────
+
+SPLIT = SplitSettings(train_end="2022-01-01", val_end="2024-01-01")
 
 
 def _split_frame() -> pd.DataFrame:
@@ -269,88 +212,37 @@ def _split_frame() -> pd.DataFrame:
 
 
 def test_split_temporal_boundaries() -> None:
-    X_tr, X_va, X_te, y_tr, y_va, y_te = split_temporal(_split_frame(), ["x"], TRAIN_END, VAL_END)
+    parts = split_temporal(_split_frame(), SPLIT)
 
-    assert X_tr.ravel().tolist() == [0.0, 1.0]  # date < train_end
-    assert X_va.ravel().tolist() == [2.0, 3.0]  # train_end <= date < val_end
-    assert X_te.ravel().tolist() == [4.0, 5.0]  # date >= val_end
-    assert y_tr.tolist() == [0.0, 1.0]
-    assert y_va.tolist() == [0.0, 1.0]
-    assert y_te.tolist() == [0.0, 1.0]
+    assert parts.train["x"].tolist() == [0.0, 1.0]  # date < train_end
+    assert parts.val["x"].tolist() == [2.0, 3.0]  # train_end <= date < val_end
+    assert parts.test["x"].tolist() == [4.0, 5.0]  # date >= val_end
 
 
-def test_split_temporal_is_a_partition(engineered: tuple[pd.DataFrame, list[str]]) -> None:
-    df, cols = engineered
-    df = handle_nulls(df.copy(), cols)
+def test_split_temporal_is_a_partition(merged_frame: pd.DataFrame) -> None:
+    frame = build_dataset(merged_frame.copy()).frame
 
-    X_tr, X_va, X_te, *_ = split_temporal(df, cols, TRAIN_END, VAL_END)
+    parts = split_temporal(frame, SPLIT)
 
-    assert len(X_tr) + len(X_va) + len(X_te) == len(df)
-    assert min(len(X_tr), len(X_va), len(X_te)) > 0
-
-
-# ── winsorize / scale ─────────────────────────────────────────
+    assert len(parts.train) + len(parts.val) + len(parts.test) == len(frame)
+    assert min(len(parts.train), len(parts.val), len(parts.test)) > 0
+    assert parts.train["date"].max() < parts.val["date"].min()
+    assert parts.val["date"].max() < parts.test["date"].min()
 
 
-def test_winsorize_clips_only_return_features_with_train_percentiles() -> None:
-    rng = np.random.default_rng(0)
-    X_train = rng.normal(size=(1000, 2))
-    X_val = np.array([[100.0, 100.0], [-100.0, -100.0]])
-    X_test = X_val.copy()
-    lo = np.percentile(X_train[:, 0], 1)
-    hi = np.percentile(X_train[:, 0], 99)
-
-    out_tr, out_va, out_te = winsorize_features(
-        X_train, X_val, X_test, ["lag_ret_1", "vix"], lower=0.01, upper=0.99
-    )
-
-    assert out_va[:, 0].tolist() == pytest.approx([hi, lo])
-    assert out_te[:, 0].tolist() == pytest.approx([hi, lo])
-    assert out_va[:, 1].tolist() == [100.0, -100.0]  # "vix" is not a return feature
-    assert out_tr[:, 0].min() >= lo
-    assert out_tr[:, 0].max() <= hi
+# ── build_dataset ─────────────────────────────────────────────
 
 
-def test_winsorize_modifies_in_place() -> None:
-    X = np.arange(100.0).reshape(-1, 1)
+def test_build_dataset(merged_frame: pd.DataFrame) -> None:
+    ds = build_dataset(merged_frame.copy())
 
-    out, _, _ = winsorize_features(X, X[:1].copy(), X[:1].copy(), ["ret"], 0.0, 0.9)
-
-    assert out is X
-    assert X.max() == pytest.approx(np.percentile(np.arange(100.0), 90))
-
-
-def test_scale_features_fits_on_train_only() -> None:
-    rng = np.random.default_rng(1)
-    X_train = rng.normal(5, 2, size=(500, 3))
-    X_val = rng.normal(50, 20, size=(50, 3))
-
-    tr, va, te, scaler = scale_features(X_train, X_val, X_val.copy())
-
-    assert isinstance(scaler, StandardScaler)
-    np.testing.assert_allclose(tr.mean(axis=0), 0, atol=1e-12)
-    np.testing.assert_allclose(tr.std(axis=0), 1, atol=1e-12)
-    np.testing.assert_allclose(scaler.mean_, X_train.mean(axis=0))
-    np.testing.assert_allclose(va, te)
-    assert va.mean() > 5  # validation is transformed, not re-fitted
-
-
-# ── full pipeline ─────────────────────────────────────────────
-
-
-def test_preprocess_end_to_end(merged_frame: pd.DataFrame) -> None:
-    split = SplitSettings(train_end="2022-01-01", val_end="2024-01-01")
-    prep = PreprocessingSettings(vif_threshold=10.0, winsor_lower=0.01, winsor_upper=0.99)
-
-    X_tr, X_va, X_te, y_tr, y_va, y_te, scaler, cols = preprocess(merged_frame.copy(), split, prep)
-
-    assert X_tr.shape[1] == X_va.shape[1] == X_te.shape[1] == len(cols) == scaler.n_features_in_
-    assert set(cols) <= set(EXPECTED_FEATURES)
-    assert len(X_tr) == len(y_tr)
-    assert len(X_va) == len(y_va)
-    assert len(X_te) == len(y_te)
-    assert not np.isnan(X_tr).any()
-    np.testing.assert_allclose(X_tr.mean(axis=0), 0, atol=1e-10)
+    assert ds.feature_cols == EXPECTED_FEATURES
+    assert list(ds.frame.columns) == ["date", "label", *EXPECTED_FEATURES]
+    assert not ds.frame.isna().any().any()
+    assert ds.frame.index.tolist() == list(range(len(ds.frame)))
+    pd.testing.assert_frame_equal(ds.features, ds.frame[EXPECTED_FEATURES])
+    pd.testing.assert_series_equal(ds.target, ds.frame["label"])
+    pd.testing.assert_series_equal(ds.dates, ds.frame["date"])
 
 
 def test_gpr_change_is_a_21_day_difference(labelled: pd.DataFrame) -> None:

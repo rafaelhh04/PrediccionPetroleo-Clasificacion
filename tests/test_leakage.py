@@ -22,14 +22,14 @@ import pytest
 from brent_forecast import pipeline
 from brent_forecast.config import PreprocessingSettings, Settings, SplitSettings
 from brent_forecast.features.preprocessing import (
+    build_dataset,
     create_label,
     engineer_features,
-    filter_features_by_vif,
     handle_nulls,
-    preprocess,
-    scale_features,
-    winsorize_features,
+    split_temporal,
 )
+from brent_forecast.features.transformers import VIFSelector, Winsorizer
+from brent_forecast.models.registry import build_pipeline
 
 SPLIT = SplitSettings(train_end="2022-01-01", val_end="2024-01-01")
 PREP = PreprocessingSettings(vif_threshold=10.0, winsor_lower=0.01, winsor_upper=0.99)
@@ -74,67 +74,62 @@ def _corrupt_after(df: pd.DataFrame, cutoff: pd.Timestamp, seed: int = 0) -> pd.
 # ── 1. fitted preprocessing state depends on train only ───────
 
 
-def test_preprocess_ignores_val_and_test_values(merged_frame: pd.DataFrame) -> None:
+def _fitted_preprocessing(frame: pd.DataFrame) -> tuple[Any, pd.DataFrame]:
+    """Fit the preprocessing part of a model pipeline on the training rows of ``frame``."""
+    dataset = build_dataset(frame)
+    train = split_temporal(dataset.frame, SPLIT).train
+    prep = build_pipeline("logistic_regression", {}, PREP)[:-1]
+    X_train = train[dataset.feature_cols]
+    return prep.fit(X_train), X_train
+
+
+def test_fitted_preprocessing_ignores_val_and_test_values(merged_frame: pd.DataFrame) -> None:
     last_train_day = merged_frame.loc[merged_frame["date"] < TRAIN_END, "date"].max()
     corrupted = _corrupt_after(merged_frame, last_train_day)
 
-    clean = preprocess(merged_frame.copy(), SPLIT, PREP)
-    dirty = preprocess(corrupted, SPLIT, PREP)
+    clean, X_clean = _fitted_preprocessing(merged_frame.copy())
+    dirty, X_dirty = _fitted_preprocessing(corrupted)
 
-    X_tr, _, _, y_tr, _, _, scaler, cols = clean
-    X_tr_d, _, _, y_tr_d, _, _, scaler_d, cols_d = dirty
-    assert cols_d == cols  # VIF selection
-    np.testing.assert_array_equal(scaler_d.mean_, scaler.mean_)  # scaler fit
-    np.testing.assert_array_equal(scaler_d.scale_, scaler.scale_)
-    np.testing.assert_array_equal(X_tr_d, X_tr)  # winsorisation + scaling of train
-    np.testing.assert_array_equal(y_tr_d[:-1], y_tr[:-1])  # see module docstring
+    pd.testing.assert_frame_equal(X_dirty, X_clean)  # the training features themselves
+    vif, vif_d = clean.named_steps["vif"], dirty.named_steps["vif"]
+    np.testing.assert_array_equal(vif_d.support_, vif.support_)  # VIF selection
+    win, win_d = clean.named_steps["winsor"], dirty.named_steps["winsor"]
+    np.testing.assert_array_equal(win_d.lower_bounds_, win.lower_bounds_)  # winsorisation
+    np.testing.assert_array_equal(win_d.upper_bounds_, win.upper_bounds_)
+    sc, sc_d = clean.named_steps["scale"], dirty.named_steps["scale"]
+    np.testing.assert_array_equal(sc_d.mean_, sc.mean_)  # scaler
+    np.testing.assert_array_equal(sc_d.scale_, sc.scale_)
+    pd.testing.assert_frame_equal(dirty.transform(X_dirty), clean.transform(X_clean))
 
 
 def test_vif_selection_ignores_non_training_rows() -> None:
     rng = np.random.default_rng(1)
-    n_train, n_future = 300, 300
-    dates = pd.bdate_range("2020-01-01", periods=n_train + n_future)
-    df = pd.DataFrame({"date": dates, **{c: rng.normal(size=len(dates)) for c in "abcd"}})
-    cutoff = dates[n_train]
-    future = df["date"] >= cutoff
-    df_collinear = df.copy()
-    df_collinear.loc[future, "b"] = df.loc[future, "a"] * 2  # collinear only in the future
+    n_train, n_future = 300, 3000
+    X = pd.DataFrame({c: rng.normal(size=n_train + n_future) for c in "abcd"})
+    X_collinear = X.copy()
+    X_collinear.loc[n_train:, "b"] = X.loc[n_train:, "a"] * 2  # collinear only in the future
 
-    kept = filter_features_by_vif(df, list("abcd"), cutoff, 10.0)
-    kept_collinear = filter_features_by_vif(df_collinear, list("abcd"), cutoff, 10.0)
+    kept = VIFSelector(5.0).fit(X.iloc[:n_train]).get_feature_names_out()
+    kept_collinear = VIFSelector(5.0).fit(X_collinear.iloc[:n_train]).get_feature_names_out()
+    leaky = VIFSelector(5.0).fit(X_collinear).get_feature_names_out()
 
-    assert kept == kept_collinear == list("abcd")
+    assert kept.tolist() == kept_collinear.tolist() == list("abcd")
+    assert len(leaky) == 3  # sanity check: fitted on every row, the selection would change
 
 
 def test_winsorisation_bounds_come_from_train_only() -> None:
     rng = np.random.default_rng(2)
-    X_train = rng.normal(size=(500, 2))
-    calm = rng.normal(size=(50, 2))
+    X_train = pd.DataFrame(rng.normal(size=(500, 2)), columns=["ret", "ret_2"])
+    calm = pd.DataFrame(rng.normal(size=(50, 2)), columns=["ret", "ret_2"])
     wild = calm * 1e6
 
-    train_a, val_a, _ = winsorize_features(
-        X_train.copy(), calm.copy(), calm.copy(), ["ret", "ret_2"], 0.01, 0.99
-    )
-    train_b, val_b, _ = winsorize_features(
-        X_train.copy(), wild.copy(), wild.copy(), ["ret", "ret_2"], 0.01, 0.99
-    )
+    winsor = Winsorizer(0.01, 0.99, name_contains="ret").fit(X_train)
+    out = winsor.transform(wild)
 
-    np.testing.assert_array_equal(train_a, train_b)
-    hi = np.percentile(X_train, 99, axis=0)
-    lo = np.percentile(X_train, 1, axis=0)
-    assert (val_b <= hi).all()
-    assert (val_b >= lo).all()
-
-
-def test_scaler_parameters_come_from_train_only() -> None:
-    rng = np.random.default_rng(3)
-    X_train = rng.normal(size=(200, 3))
-
-    *_, scaler_a = scale_features(X_train, rng.normal(size=(20, 3)), rng.normal(size=(20, 3)))
-    *_, scaler_b = scale_features(X_train, np.full((20, 3), 1e9), np.full((20, 3), -1e9))
-
-    np.testing.assert_array_equal(scaler_a.mean_, scaler_b.mean_)
-    np.testing.assert_array_equal(scaler_a.var_, scaler_b.var_)
+    np.testing.assert_array_equal(winsor.lower_bounds_, np.percentile(X_train, 1, axis=0))
+    np.testing.assert_array_equal(winsor.upper_bounds_, np.percentile(X_train, 99, axis=0))
+    assert (out <= winsor.upper_bounds_).all()
+    assert (out >= winsor.lower_bounds_).all()
 
 
 # ── 2. future permutation ─────────────────────────────────────
@@ -189,17 +184,16 @@ def test_no_same_day_or_target_columns_in_features(merged_frame: pd.DataFrame) -
 # ── 3. the pipeline never feeds the test set to tuning/training ──
 
 
-@pytest.mark.filterwarnings("ignore::FutureWarning")
 def test_pipeline_keeps_x_test_out_of_tuning_and_training(
     fast_settings: Settings, small_raw_data_dir: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seen: dict[str, Any] = {"tune": [], "train": [], "curves": [], "final": []}
+    seen: dict[str, list[tuple[Any, ...]]] = {"tune": [], "train": [], "curves": [], "final": []}
     splits: dict[str, Any] = {}
 
-    def spy_preprocess(*args: Any, **kwargs: Any) -> Any:
-        out = preprocess(*args, **kwargs)
-        splits.update(X_train=out[0], X_val=out[1], X_test=out[2])
-        return out
+    def spy_split(*args: Any, **kwargs: Any) -> Any:
+        parts = split_temporal(*args, **kwargs)
+        splits.update(train=parts.train.index, val=parts.val.index, test=parts.test.index)
+        return parts
 
     def spy(kind: str, fn: Any) -> Any:
         def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -208,25 +202,26 @@ def test_pipeline_keeps_x_test_out_of_tuning_and_training(
 
         return wrapper
 
-    monkeypatch.setattr(pipeline, "preprocess", spy_preprocess)
-    for name in ("tune_logreg", "tune_svm", "tune_rf", "tune_mlp"):
-        monkeypatch.setattr(pipeline, name, spy("tune", getattr(pipeline, name)))
-    for name in ("run_logreg", "run_svm", "run_rf", "run_mlp"):
-        monkeypatch.setattr(pipeline, name, spy("train", getattr(pipeline, name)))
-    monkeypatch.setattr(
-        pipeline, "plot_learning_curve_sklearn", spy("curves", lambda *a, **k: None)
-    )
-    monkeypatch.setattr(pipeline, "plot_learning_curve_mlp", spy("curves", lambda *a, **k: None))
+    monkeypatch.setattr(pipeline, "split_temporal", spy_split)
+    monkeypatch.setattr(pipeline, "grid_search", spy("tune", pipeline.grid_search))
+    monkeypatch.setattr(pipeline, "fit_and_evaluate", spy("train", pipeline.fit_and_evaluate))
+    monkeypatch.setattr(pipeline, "plot_learning_curve", spy("curves", lambda *a, **k: None))
     monkeypatch.setattr(pipeline, "evaluate_on_test", spy("final", pipeline.evaluate_on_test))
 
     pipeline.run(fast_settings)
 
-    X_train, X_val, X_test = splits["X_train"], splits["X_val"], splits["X_test"]
-    assert len(seen["tune"]) == len(seen["train"]) == 4
-    assert all(args[0] is X_train for args in seen["tune"])
-    assert all(args[0] is X_train and args[2] is X_val for args in seen["train"])
-    assert all(args[0] is X_train or args[1] is X_train for args in seen["curves"])
-    for args in seen["tune"] + seen["train"] + seen["curves"]:
-        assert not any(a is X_test for a in args if isinstance(a, np.ndarray))
+    def rows(kind: str, position: int) -> list[pd.Index]:
+        return [args[position].index for args in seen[kind]]
+
+    train, val, test = splits["train"], splits["val"], splits["test"]
+    assert len(seen["tune"]) == len(seen["train"]) == len(seen["curves"]) == 4
+    assert all(idx.equals(train) for idx in rows("tune", 2))  # grid_search(est, grid, X, y)
+    assert all(idx.equals(train) for idx in rows("train", 2))  # fit_and_evaluate(..., X_tr, ...)
+    assert all(idx.equals(val) for idx in rows("train", 4))  # ..., X_val, ...)
+    assert all(idx.equals(train) for idx in rows("curves", 1))  # plot_learning_curve(est, X, y)
+    for kind in ("tune", "train", "curves"):
+        for args in seen[kind]:
+            frames = [a for a in args if isinstance(a, pd.DataFrame | pd.Series)]
+            assert all(f.index.intersection(test).empty for f in frames)
     assert len(seen["final"]) == 1  # the test set is evaluated exactly once
-    assert seen["final"][0][1] is X_test
+    assert seen["final"][0][1].index.equals(test)

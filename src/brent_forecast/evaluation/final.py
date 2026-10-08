@@ -8,6 +8,7 @@ methodology; if test metrics are bad, they are reported as they are.
 import logging
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import matplotlib
 
@@ -16,29 +17,24 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.metrics import roc_curve
 
-from brent_forecast._types import FloatArray, ModelResult
+from brent_forecast._types import ModelResult
 from brent_forecast.evaluation.metrics import (
     compute_metrics,
     log_full_metrics,
     plot_confusion_matrix,
     save_figure,
 )
-from brent_forecast.models.neural_network import predict_proba as mlp_predict_proba
 
 logger = logging.getLogger(__name__)
 
 
 def evaluate_on_test(
     fitted_results: Sequence[ModelResult],
-    X_test: FloatArray,
-    y_test: FloatArray,
+    X_test: Any,
+    y_test: Any,
     plots_dir: Path,
 ) -> list[ModelResult]:
-    """Evaluate every fitted model on ``(X_test, y_test)``.
-
-    sklearn models are told apart from the NumPy MLP by their ``model`` entry:
-    an estimator with ``predict_proba`` vs. a ``{"params", "history", "config"}``
-    dict.
+    """Evaluate every fitted model (an estimator with ``predict_proba``) on the test set.
 
     Returns
     -------
@@ -55,10 +51,7 @@ def evaluate_on_test(
         name = r["model_name"]
         model = r["model"]
 
-        if isinstance(model, dict) and "params" in model:
-            y_proba = mlp_predict_proba(X_test, model["params"])
-        else:
-            y_proba = model.predict_proba(X_test)[:, 1]
+        y_proba = model.predict_proba(X_test)[:, 1]
 
         y_pred = (y_proba >= 0.5).astype(int)
         metrics_test = compute_metrics(y_test, y_pred, y_proba)
@@ -79,7 +72,7 @@ def evaluate_on_test(
 
 
 def plot_roc_test_comparison(
-    test_results: Sequence[ModelResult], y_test: FloatArray, plots_dir: Path
+    test_results: Sequence[ModelResult], y_test: Any, plots_dir: Path
 ) -> Path:
     """Save the test ROC curves of all models overlaid in one figure."""
     fig, ax = plt.subplots(figsize=(6, 5))

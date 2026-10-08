@@ -5,6 +5,7 @@ generator, so the tests are deterministic and run offline.
 """
 
 from collections.abc import Iterator
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ import pandas as pd
 import pytest
 
 from brent_forecast.config import DEFAULT_CONFIG_PATH, Settings, load_settings
+from brent_forecast.data.load import DateBounds
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = REPO_ROOT / DEFAULT_CONFIG_PATH
@@ -20,6 +22,7 @@ CONFIG_PATH = REPO_ROOT / DEFAULT_CONFIG_PATH
 OIL_FILENAME = "oil_geopolitics_dataset_2010_2026.csv"
 EVENTS_FILENAME = "geopolitical_events_timeline.csv"
 EVENT_TYPES = ("war", "sanctions", "opec", "conflict", "disaster", "blockade")
+DATE_BOUNDS = DateBounds(date(2009, 1, 1), date(2011, 12, 31), date(2025, 1, 1))
 
 
 def make_oil_frame(
@@ -153,6 +156,7 @@ def merged_frame(tmp_path_factory: pytest.TempPathFactory) -> pd.DataFrame:
     return load_oil_data(
         write_csv(oil, data_dir / OIL_FILENAME),
         write_csv(make_events_frame(oil), data_dir / EVENTS_FILENAME),
+        DATE_BOUNDS,
     )
 
 
@@ -178,7 +182,7 @@ FAST_MODELS: dict[str, Any] = {
         "grid": {"C": [0.1, 1.0]},
     },
     "svm": {
-        "params": {"kernel": "rbf", "C": 1.0, "gamma": "scale", "probability": True},
+        "params": {"kernel": "rbf", "C": 1.0, "gamma": "scale"},
         "grid": {"C": [1.0], "gamma": ["scale"]},
     },
     "random_forest": {

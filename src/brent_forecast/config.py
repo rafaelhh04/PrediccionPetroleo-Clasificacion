@@ -46,6 +46,11 @@ class PathsSettings(_Section):
         return self.results_dir / "run.log"
 
     @property
+    def models_dir(self) -> Path:
+        """Serialised fitted pipelines (``<model>.joblib``)."""
+        return self.results_dir / "models"
+
+    @property
     def metrics_file(self) -> Path:
         """Machine-readable metrics of the last training run."""
         return self.results_dir / "metrics.json"
@@ -57,6 +62,15 @@ class DataSettings(_Section):
     kaggle_dataset: str
     oil_filename: str
     events_filename: str
+    expected_start_min: date
+    expected_start_max: date
+    expected_end_min: date
+
+    @model_validator(mode="after")
+    def _check_bounds(self) -> Self:
+        if self.expected_start_min > self.expected_start_max:
+            raise ValueError("data.expected_start_min must not be after expected_start_max")
+        return self
 
     @property
     def filenames(self) -> tuple[str, str]:

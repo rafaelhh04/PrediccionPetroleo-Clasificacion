@@ -50,3 +50,28 @@ def test_invalid_split_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_missing_config_file(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         load_settings(tmp_path / "missing.yaml")
+
+
+def test_grid_overrides_are_deep_merged(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Documented semantics: overriding one grid key keeps the other keys from the YAML."""
+    default = load_settings(CONFIG_PATH).models.random_forest.grid
+    monkeypatch.setenv("BRENT_MODELS__RANDOM_FOREST__GRID", '{"max_depth": [3]}')
+
+    grid = load_settings(CONFIG_PATH).models.random_forest.grid
+
+    assert grid["max_depth"] == [3]
+    assert grid["n_estimators"] == default["n_estimators"]
+    assert grid["min_samples_leaf"] == default["min_samples_leaf"]
+
+
+def test_data_date_bounds_are_validated(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRENT_DATA__EXPECTED_START_MIN", "2012-01-01")
+
+    with pytest.raises(ValidationError, match="expected_start_min"):
+        load_settings(CONFIG_PATH)
+
+
+def test_models_dir_lives_under_results() -> None:
+    settings = load_settings(CONFIG_PATH)
+
+    assert settings.paths.models_dir == settings.paths.results_dir / "models"

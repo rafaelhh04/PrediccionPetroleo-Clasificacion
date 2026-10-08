@@ -103,6 +103,7 @@ name = "brent-forecast"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "joblib" },
     { name = "kagglehub" },
     { name = "matplotlib" },
     { name = "numpy" },
@@ -129,6 +130,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "joblib", specifier = ">=1.4" },
     { name = "kagglehub", specifier = ">=1.0" },
     { name = "matplotlib", specifier = ">=3.10" },
     { name = "numpy", specifier = ">=2.2" },

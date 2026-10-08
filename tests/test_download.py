@@ -1,6 +1,7 @@
 """Tests for the Kaggle download logic, using a fake downloader (no network)."""
 
 import json
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -18,7 +19,12 @@ KAGGLE_DATASET = "owner/dataset"
 OIL_FILENAME = "oil.csv"
 EVENTS_FILENAME = "events.csv"
 DATA = DataSettings(
-    kaggle_dataset=KAGGLE_DATASET, oil_filename=OIL_FILENAME, events_filename=EVENTS_FILENAME
+    kaggle_dataset=KAGGLE_DATASET,
+    oil_filename=OIL_FILENAME,
+    events_filename=EVENTS_FILENAME,
+    expected_start_min=date(2009, 1, 1),
+    expected_start_max=date(2011, 12, 31),
+    expected_end_min=date(2025, 1, 1),
 )
 
 OIL_CSV = (
