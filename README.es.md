@@ -87,6 +87,11 @@ resuelta.
 
 ## Resultados (AUC-ROC)
 
+Ejecución de referencia del proyecto original con los datos de Kaggle. Es anterior a las correcciones de
+la Fase 3 (p. ej. el bug de la última etiqueta) y aún no se ha repetido con datos reales: Kaggle no es
+accesible desde el entorno de desarrollo, así que las cifras posteriores se reproducen con el dataset
+sintético de los tests.
+
 | Modelo | Train | Validación | Test |
 |--------|------:|-----------:|-----:|
 | Logistic Regression | 0.5507 | 0.4800 | 0.4858 |
