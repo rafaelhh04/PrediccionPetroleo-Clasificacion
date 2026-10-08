@@ -69,11 +69,13 @@ def log_oos_summary(summary: Mapping[str, Mapping[str, Any]]) -> None:
     for name, m in summary.items():
         aucs = [w["auc_roc"] for w in m["windows"] if w["auc_roc"] is not None]
         cv = f"{m['cv']['auc_mean']:.4f} ± {m['cv']['auc_std']:.3f}"
+        label = f"{name} *" if m.get("kind") == "baseline" else name
         lines.append(
-            f"{name:<25}{cv:>17}{m['oos']['auc_roc']:>10.4f}{m['oos']['accuracy']:>10.4f}"
+            f"{label:<25}{cv:>17}{m['oos']['auc_roc']:>10.4f}{m['oos']['accuracy']:>10.4f}"
             f"{np.mean(aucs):>14.4f}{f'{min(aucs):.3f}-{max(aucs):.3f}':>16}"
         )
     lines.append("=" * width)
+    lines.append("* naive baseline")
     logger.info("Walk-forward summary:\n%s", "\n".join(lines))
 
 

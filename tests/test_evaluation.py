@@ -135,6 +135,7 @@ def test_oos_plots_and_summary(plots_dir: Path, caplog: pytest.LogCaptureFixture
             "windows": rows,
         },
         "Model B": {
+            "kind": "baseline",
             "cv": {"auc_mean": 0.49, "auc_std": 0.01},
             "oos": oos_metrics(y, 1 - proba),
             "windows": rows,
@@ -148,6 +149,8 @@ def test_oos_plots_and_summary(plots_dir: Path, caplog: pytest.LogCaptureFixture
     assert "Walk-forward summary" in caplog.text
     assert "0.5100 ± 0.020" in caplog.text
     assert caplog.text.count("Model B") == 1
+    assert "Model B *" in caplog.text
+    assert "* naive baseline" in caplog.text
 
 
 # ── learning / training curves ────────────────────────────────
