@@ -106,6 +106,11 @@ Bollinger(20, 2) %B y anchura, momentum de 21 y 63 días, cambios de VIX y DXY a
 seno/coseno del día de la semana y del mes. Cada feature tiene un test de truncamiento que prueba que solo
 usa datos hasta su propio día.
 
+**Explicabilidad** (`brent explain`): cada modelo se reentrena en el periodo de desarrollo y se explica en
+el periodo fuera de muestra, con *permutation importance* (caída de AUC al barajar cada feature) y SHAP
+(TreeSHAP para LightGBM/RF, forma cerrada para la logística y explainer por permutación para SVM/MLP). Se
+genera una vista global (beeswarm, |SHAP| medio) y una local (waterfall del último día).
+
 **Backtest económico:** cada candidato se convierte en una estrategia long/flat (comprado si
 `P(sube) >= 0.5`) sobre el retorno del día siguiente, con 5 pb de coste por operación. Se reportan CAGR,
 volatilidad, Sharpe, drawdown máximo, hit ratio, exposición y número de operaciones, y un intervalo por

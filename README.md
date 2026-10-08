@@ -37,6 +37,7 @@ uv sync                      # create .venv from uv.lock
 uv run brent data download   # fetch the Kaggle dataset into data/raw/ (needs Kaggle credentials)
 uv run brent train           # full pipeline: preprocess, tune, train, evaluate (~11 min on 4 cores)
 uv run brent report          # statistical report of the last run (CIs, tests, calibration)
+uv run brent explain         # permutation importance and SHAP of the trained models
 ```
 
 Outputs are written to `results/` (ignored by git):
@@ -49,6 +50,7 @@ Outputs are written to `results/` (ignored by git):
 | `results/run.log` | Full log of the run |
 | `results/plots/` | Out-of-sample ROC, AUC per window, confusion matrices, learning curves, MLP training curves, reliability diagram |
 | `results/report.md`, `report.json` | Statistical report written by `brent report` |
+| `results/explain/` | Permutation and SHAP importances (CSV) and `explanations.md`, written by `brent explain` |
 
 ### Data
 
@@ -81,6 +83,7 @@ brent [--config PATH] [--log-level LEVEL] COMMAND
 
   train            Run the full pipeline: load, preprocess, tune, train and evaluate on test
   report           Build the statistical report (CIs, DeLong, binomial, calibration) of the last run
+  explain          Explain the trained models: permutation importance and SHAP (global and local)
   data download    Download the Kaggle dataset and verify checksums  [--force] [--update-checksums]
   data verify      Verify the SHA-256 checksums of the local data files
   config show      Print the resolved configuration as JSON
@@ -189,6 +192,23 @@ because its constant is re-estimated at every refit.
   `backtest` section of the config.
 - **Provenance**: the SHA-256 of the input files is stored in `metrics.json`; the report says whether
   they match the recorded Kaggle checksums or are unverified.
+
+### Explainability
+
+`brent explain` (`evaluation/explain.py`) refits each model listed in `explain.models` on the development
+period, with the hyperparameters of its saved pipeline, and explains it on the out-of-sample period. The
+importances therefore describe what generalises, not what was memorised.
+
+- **Permutation importance**: the drop in out-of-sample ROC AUC when each raw feature is shuffled
+  (10 repeats, mean ± std). It is model-agnostic, and a feature removed by the VIF filter scores exactly 0.
+- **SHAP**: exact TreeSHAP for LightGBM and the random forest, the closed form for logistic regression
+  (log-odds), and the permutation explainer on `P(up)` for the SVM and the MLP. The global view is a
+  beeswarm plot plus mean |SHAP|; the local view is a waterfall plot of the most recent out-of-sample day.
+  Tests check additivity (base value + Σ SHAP = model output).
+
+On the synthetic data the top permutation importances are within about 0.01–0.015 AUC with comparable
+standard deviations, and the features ranked first differ between models. That pattern is what an absence
+of stable signal looks like.
 
 ---
 

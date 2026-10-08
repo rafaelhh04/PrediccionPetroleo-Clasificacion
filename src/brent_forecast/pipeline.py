@@ -39,7 +39,7 @@ from brent_forecast.evaluation.oos import (
     plot_window_auc,
     window_metrics,
 )
-from brent_forecast.features.preprocessing import build_dataset, split_by_date
+from brent_forecast.features.preprocessing import Dataset, Split, build_dataset, split_by_date
 from brent_forecast.models.base import log_top_features
 from brent_forecast.models.baselines import BASELINE_NAMES, build_baseline
 from brent_forecast.models.registry import (
@@ -57,6 +57,18 @@ logger = logging.getLogger(__name__)
 _SEARCH_N_JOBS = {"random_forest": 1}
 
 
+def prepare_data(settings: Settings) -> tuple[Dataset, Split]:
+    """Load the raw files, build the dataset and split it at ``split.test_start``."""
+    paths, data = settings.paths, settings.data
+    df = load_oil_data(
+        paths.data_dir / data.oil_filename,
+        paths.data_dir / data.events_filename,
+        DateBounds(data.expected_start_min, data.expected_start_max, data.expected_end_min),
+    )
+    dataset = build_dataset(df)
+    return dataset, split_by_date(dataset.frame, settings.split)
+
+
 def run(settings: Settings) -> None:
     """Run the full pipeline with the given settings."""
     np.random.seed(settings.seed)
@@ -67,14 +79,7 @@ def run(settings: Settings) -> None:
 
     # ─── 1. Load and build the dataset ───────────────────────────
     logger.info("[1/5] Loading data and building the dataset")
-    data = settings.data
-    df = load_oil_data(
-        paths.data_dir / data.oil_filename,
-        paths.data_dir / data.events_filename,
-        DateBounds(data.expected_start_min, data.expected_start_max, data.expected_end_min),
-    )
-    dataset = build_dataset(df)
-    parts = split_by_date(dataset.frame, settings.split)
+    dataset, parts = prepare_data(settings)
     cols = dataset.feature_cols
     X_dev, y_dev = parts.dev[cols], parts.dev["label"]
     X_all, y_all = dataset.features, dataset.target

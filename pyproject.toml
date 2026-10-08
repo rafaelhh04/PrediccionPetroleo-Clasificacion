@@ -25,6 +25,7 @@ dependencies = [
     "pyyaml>=6.0",
     "scikit-learn>=1.6",
     "scipy>=1.14",
+    "shap>=0.46",
     "statsmodels>=0.14.4",
     "typer>=0.15",
 ]
@@ -55,6 +56,8 @@ testpaths = ["tests"]
 addopts = ["-ra", "--strict-markers", "--strict-config", "-m", "not slow"]
 markers = ["slow: end-to-end tests that run the CLI training pipeline (excluded by default)"]
 xfail_strict = true
+# shap's colour maps use matplotlib APIs scheduled for deprecation (upstream issue).
+filterwarnings = ["ignore::PendingDeprecationWarning:shap.*"]
 
 [tool.coverage.run]
 source = ["brent_forecast"]
@@ -110,7 +113,7 @@ plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
 # These libraries ship no type information (no py.typed / stubs).
-module = ["sklearn.*", "scipy.*", "statsmodels.*", "kagglehub.*", "joblib.*"]
+module = ["sklearn.*", "scipy.*", "shap.*", "statsmodels.*", "kagglehub.*", "joblib.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

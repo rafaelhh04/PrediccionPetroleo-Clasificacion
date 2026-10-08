@@ -64,6 +64,14 @@ backtest:
   allow_short: false
   periods_per_year: 252     # trading days, to annualise returns and Sharpe ratios
 
+# `brent explain`: every listed model is refitted on the development period and explained on the
+# out-of-sample period (permutation importance on raw features, SHAP on the model inputs).
+explain:
+  models: [logistic_regression, random_forest, lightgbm]
+  permutation_repeats: 10   # shuffles per feature (ROC AUC drop)
+  background_rows: 100      # development rows used as the SHAP background distribution
+  max_explained_rows: 600   # out-of-sample rows explained with SHAP (the whole period by default)
+
 # Bayesian optimisation (Optuna, TPE sampler seeded with `seed`) for models with a `space`.
 # Each trial is scored with the same purged walk-forward CV as the grid searches; with pruning,
 # a trial whose running mean AUC is below the median of earlier trials at the same fold stops.

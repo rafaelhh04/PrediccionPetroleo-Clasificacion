@@ -54,7 +54,7 @@ def test_help_lists_commands() -> None:
     result = invoke(["--help"])
 
     assert result.exit_code == 0
-    for command in ("train", "report", "data", "config"):
+    for command in ("train", "report", "explain", "data", "config"):
         assert command in result.output
 
 
@@ -220,6 +220,20 @@ def test_train_end_to_end(fast_settings: Settings, raw_data_dir: Path, tmp_path:
 
     assert report.exit_code == 0, report.output
     assert f"Report written to {fast_settings.paths.report_file}" in report.output
+
+    explain = invoke(["--config", str(config), "--log-level", "WARNING", "explain"])
+
+    assert explain.exit_code == 0, explain.output
+    assert "Explanations written to" in explain.output
+
+
+def test_explain_without_a_training_run_fails(settings: Settings, tmp_path: Path) -> None:
+    config = _write_config(settings, tmp_path / "config.yaml")
+
+    result = invoke(["--config", str(config), "explain"])
+
+    assert result.exit_code == 1
+    assert "run `brent train`" in result.output
 
 
 def test_report_without_a_training_run_fails(settings: Settings, tmp_path: Path) -> None:

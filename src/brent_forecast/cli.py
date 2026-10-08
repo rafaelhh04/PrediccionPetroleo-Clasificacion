@@ -104,6 +104,20 @@ def report(ctx: typer.Context) -> None:
     typer.echo(f"Report written to {path}")
 
 
+@app.command()
+def explain(ctx: typer.Context) -> None:
+    """Explain the trained models: permutation importance and SHAP (global and local)."""
+    from brent_forecast.evaluation.explain import generate_explanations
+
+    settings = _settings(ctx)
+    try:
+        path = generate_explanations(settings)
+    except (FileNotFoundError, KeyError) as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"Explanations written to {path}")
+
+
 @config_app.command("show")
 def config_show(ctx: typer.Context) -> None:
     """Print the resolved configuration (YAML + environment overrides) as JSON."""
