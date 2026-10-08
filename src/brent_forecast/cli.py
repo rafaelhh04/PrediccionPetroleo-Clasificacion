@@ -90,6 +90,20 @@ def train(ctx: typer.Context) -> None:
     typer.echo(f"Log written to {settings.paths.log_file}")
 
 
+@app.command()
+def report(ctx: typer.Context) -> None:
+    """Build the statistical report (CIs, DeLong, binomial, calibration) of the last run."""
+    from brent_forecast.evaluation.report import generate_report
+
+    settings = _settings(ctx)
+    try:
+        path = generate_report(settings)
+    except FileNotFoundError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"Report written to {path}")
+
+
 @config_app.command("show")
 def config_show(ctx: typer.Context) -> None:
     """Print the resolved configuration (YAML + environment overrides) as JSON."""
