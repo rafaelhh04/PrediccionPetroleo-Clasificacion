@@ -73,7 +73,8 @@ resuelta.
 
 - **División temporal estricta:** train `< 2022-01-01`, validación `2022–2023`, test `≥ 2024-01-01`.
 - **Control de leakage:** se elimina `wti_return` (mismo día); el filtro VIF, los percentiles de
-  winsorización y el `StandardScaler` se ajustan solo con train; el tuning usa `TimeSeriesSplit` (5 folds,
+  winsorización y el `StandardScaler` son pasos del `Pipeline` de cada modelo, así que se ajustan solo con
+  train (y de nuevo en cada fold de CV); cada pipeline ajustado se guarda en `results/models/`; el tuning usa `TimeSeriesSplit` (5 folds,
   ventana expansiva) solo sobre train; el test se evalúa una única vez.
 - **Búsqueda de hiperparámetros:** `GridSearchCV` para los modelos sklearn y búsqueda manual para la MLP.
 - **Métricas:** accuracy, precision / recall / F1 macro y AUC-ROC (métrica principal).
@@ -81,9 +82,9 @@ resuelta.
 | Modelo | Implementación |
 |--------|----------------|
 | Regresión logística (L2) | scikit-learn |
-| SVM (kernel RBF) | scikit-learn |
+| SVM (kernel RBF, probabilidades calibradas) | scikit-learn |
 | Random Forest | scikit-learn |
-| **MLP 64 → 32 → 1** | **NumPy puro** |
+| **MLP 64 → 32 → 1** | **núcleo NumPy puro**, API de estimador scikit-learn |
 
 ## Resultados (AUC-ROC)
 
