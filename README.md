@@ -12,8 +12,9 @@
 
 *Versión en español: [README.es.md](README.es.md).*
 
-Binary classification of whether Brent will close higher tomorrow, comparing four models — logistic
-regression, RBF SVM, random forest and a **multilayer perceptron written from scratch in NumPy**
+Binary classification of whether Brent will close higher tomorrow, comparing five models — logistic
+regression, RBF SVM, random forest, LightGBM (tuned with Optuna) and a **multilayer perceptron written from
+scratch in NumPy**
 (backpropagation, inverted dropout, He initialisation, early stopping) — under a strict, leakage-aware
 chronological evaluation.
 
@@ -34,7 +35,7 @@ cd PrediccionPetroleo-Clasificacion
 
 uv sync                      # create .venv from uv.lock
 uv run brent data download   # fetch the Kaggle dataset into data/raw/ (needs Kaggle credentials)
-uv run brent train           # full pipeline: preprocess, tune, train, evaluate (~6 min on 4 cores)
+uv run brent train           # full pipeline: preprocess, tune, train, evaluate (~11 min on 4 cores)
 uv run brent report          # statistical report of the last run (CIs, tests, calibration)
 ```
 
@@ -143,6 +144,12 @@ load + left-join events ─► label (t+1) ─► feature engineering (past-only
 | SVM, RBF kernel (sigmoid-calibrated probabilities) | scikit-learn | `C`, `gamma` |
 | Random forest | scikit-learn | `n_estimators`, `max_depth`, `min_samples_leaf` |
 | **MLP 64 → 32 → 1** | **pure NumPy core**, scikit-learn estimator API (`NumpyMLPClassifier`) | hidden sizes, learning rate |
+| LightGBM (gradient boosting) | `lightgbm` | 8 hyperparameters with **Optuna** |
+
+LightGBM is tuned with Optuna's TPE sampler (seeded, 50 trials, `tuning` section of the config) instead of a
+grid. Each trial is scored with the same purged walk-forward folds; with median pruning a trial whose running
+mean AUC falls below the median of earlier trials at the same fold is stopped early. All trials are saved to
+`results/optuna_lightgbm.csv`.
 
 
 ### Baselines
@@ -211,6 +218,7 @@ features:
 | SVM (RBF) | 0.491 [0.442, 0.543] | −0.016 [−0.075, +0.046] | 1.000 | −0.0006 |
 | Random Forest | 0.510 [0.465, 0.552] | +0.003 [−0.052, +0.057] | 1.000 | −0.0053 |
 | MLP NumPy | 0.501 [0.453, 0.549] | −0.007 [−0.069, +0.056] | 1.000 | −0.0073 |
+| LightGBM | 0.450 [0.401, 0.497] | −0.057 [−0.116, +0.002] | 0.465 | −0.1245 |
 
 Backtest on the same days (long/flat, 5 bps per trade):
 
@@ -221,12 +229,18 @@ Backtest on the same days (long/flat, 5 bps per trade):
 | SVM (RBF) | +5.0 % | 0.79 | −0.27 [−1.84, +1.21] | −4.4 % | 3 % |
 | Random Forest | −6.9 % | −0.27 | −1.33 [−2.52, −0.21] | −28.6 % | 39 % |
 | MLP NumPy | +19.8 % | 1.00 | −0.06 [−1.33, +1.15] | −28.1 % | 43 % |
+| LightGBM | −7.0 % | −0.24 | −1.30 [−2.60, −0.07] | −36.8 % | 47 % |
 | Persistence (baseline) | +19.7 % | 0.90 | −0.16 [−1.04, +0.72] | −23.3 % | 48 % |
 
 Every AUC interval contains 0.5, no model beats persistence or the no-information rate and no strategy
 beats buy & hold after costs: as expected on a random-walk price series, there is no skill to find. The
 logistic regression's AUC of 0.536 and Sharpe of 1.11 look attractive in isolation; the intervals show they
 are compatible with luck.
+
+LightGBM illustrates the opposite trap. Its best Optuna trial reached a development CV AUC of 0.517, the
+maximum of 50 noisy estimates (winner's curse), and it fell to 0.450 out of sample, with overconfident
+probabilities (Brier skill −0.12). The most flexible model, tuned hardest, is the one that overfits the noise
+most.
 
 Effect of the v2 features (same protocol; v1 = 14 features, v2 = 29 before the VIF filter):
 
@@ -253,7 +267,7 @@ Effect of the v2 features (same protocol; v1 = 14 features, v2 = 29 before the V
 │   ├── pipeline.py             # end-to-end training orchestration
 │   ├── data/                   # Kaggle download + checksums, loading and merge
 │   ├── features/               # label, past-only features, split; VIFSelector / Winsorizer transformers
-│   ├── models/                 # registry of model pipelines, NumPy MLP (core + estimator), tuning
+│   ├── models/                 # registry of model pipelines (incl. LightGBM), NumPy MLP, baselines, grid and Optuna tuning
 │   └── evaluation/             # metrics, plots, learning curves, final test evaluation
 ├── tests/                      # unit, leakage-guard, gradient-check and property tests
 ├── .github/                    # CI workflow, Dependabot, templates, CODEOWNERS, ruleset

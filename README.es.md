@@ -7,9 +7,9 @@
 
 *English version: [README.md](README.md).*
 
-Clasificación binaria de si el Brent cerrará al alza mañana, comparando cuatro modelos — regresión
-logística, SVM con kernel RBF, Random Forest y una **red neuronal MLP implementada desde cero en NumPy**
-(backpropagation, dropout invertido, inicialización He, early stopping) — con una evaluación cronológica
+Clasificación binaria de si el Brent cerrará al alza mañana, comparando cinco modelos — regresión
+logística, SVM con kernel RBF, Random Forest, LightGBM (ajustado con Optuna) y una **red neuronal MLP
+implementada desde cero en NumPy** (backpropagation, dropout invertido, inicialización He, early stopping) — con una evaluación cronológica
 estricta y consciente del *data leakage*.
 
 | Clase | Condición | Significado |
@@ -89,6 +89,7 @@ resuelta.
 | SVM (kernel RBF, probabilidades calibradas) | scikit-learn |
 | Random Forest | scikit-learn |
 | **MLP 64 → 32 → 1** | **núcleo NumPy puro**, API de estimador scikit-learn |
+| LightGBM (gradient boosting) | `lightgbm`, hiperparámetros con **Optuna** (TPE con semilla + poda por mediana) |
 
 Baselines evaluados con el mismo walk-forward: clase mayoritaria, persistencia (mañana = hoy), aleatorio
 estratificado y buy & hold (siempre sube).
@@ -137,10 +138,13 @@ las features v2:
 | SVM (RBF) | 0.491 [0.442, 0.543] | −0.016 [−0.075, +0.046] | 1.000 | 0.79 |
 | Random Forest | 0.510 [0.465, 0.552] | +0.003 [−0.052, +0.057] | 1.000 | −0.27 |
 | MLP NumPy | 0.501 [0.453, 0.549] | −0.007 [−0.069, +0.056] | 1.000 | 1.00 |
+| LightGBM | 0.450 [0.401, 0.497] | −0.057 [−0.116, +0.002] | 0.465 | −0.24 |
 
 Todos los intervalos de AUC contienen 0.5, ningún modelo supera a la persistencia ni a la
 *no-information rate* y ninguna estrategia bate a buy & hold tras costes (Sharpe 1.06; la diferencia de la
 mejor, la regresión logística, es +0.06 [−1.09, +1.18]): no hay capacidad predictiva que encontrar.
+LightGBM ilustra la maldición del ganador: su mejor trial de Optuna alcanzó un AUC de 0.517 en CV (el máximo
+de 50 estimaciones ruidosas) y cayó a 0.450 fuera de muestra.
 
 ---
 
@@ -156,7 +160,7 @@ mejor, la regresión logística, es +0.06 [−1.09, +1.18]): no hay capacidad pr
 │   ├── pipeline.py             # orquestación del entrenamiento
 │   ├── data/                   # descarga de Kaggle + checksums, carga y merge
 │   ├── features/               # label, features, VIF, split, winsorización, escalado
-│   ├── models/                 # LogReg, SVM, RF, MLP NumPy y helpers de tuning
+│   ├── models/                 # LogReg, SVM, RF, MLP NumPy, LightGBM, baselines y tuning
 │   └── evaluation/             # métricas, gráficas, curvas de aprendizaje, evaluación final
 ├── tests/                      # tests unitarios, de leakage, gradient check y propiedades
 ├── .github/                    # CI, Dependabot, plantillas, CODEOWNERS, ruleset
