@@ -22,6 +22,7 @@ dependencies = [
     "pydantic-settings>=2.8",
     "pyyaml>=6.0",
     "scikit-learn>=1.6",
+    "scipy>=1.14",
     "statsmodels>=0.14.4",
     "typer>=0.15",
 ]
@@ -107,7 +108,7 @@ plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
 # These libraries ship no type information (no py.typed / stubs).
-module = ["sklearn.*", "statsmodels.*", "kagglehub.*", "joblib.*"]
+module = ["sklearn.*", "scipy.*", "statsmodels.*", "kagglehub.*", "joblib.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

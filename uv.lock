@@ -111,6 +111,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "pyyaml" },
     { name = "scikit-learn" },
+    { name = "scipy" },
     { name = "statsmodels" },
     { name = "typer" },
 ]
@@ -138,6 +139,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.8" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "scikit-learn", specifier = ">=1.6" },
+    { name = "scipy", specifier = ">=1.14" },
     { name = "statsmodels", specifier = ">=0.14.4" },
     { name = "typer", specifier = ">=0.15" },
 ]
