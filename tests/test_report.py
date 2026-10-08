@@ -20,10 +20,12 @@ def _run_artefacts(signal: float, n: int = 252, seed: int = 0) -> tuple[pd.DataF
     y = (rng.random(n) < 0.52).astype(float)
     model = 1 / (1 + np.exp(-(signal * (2 * y - 1) + rng.normal(size=n))))
     lag = np.r_[y[0], y[:-1]]  # persistence: yesterday's label
+    next_return = np.where(y == 1, 1, -1) * np.abs(rng.normal(0, 0.02, n))
     predictions = pd.DataFrame(
         {
             "date": pd.bdate_range("2024-01-01", periods=n),
             "label": y,
+            "next_return": next_return,
             "window": np.arange(n) // 63,
             "proba_model": model,
             "proba_majority": np.full(n, 0.52),
@@ -44,7 +46,7 @@ def _run_artefacts(signal: float, n: int = 252, seed: int = 0) -> tuple[pd.DataF
 
 def _report(settings: Settings, signal: float) -> dict[str, Any]:
     predictions, metrics = _run_artefacts(signal)
-    return build_report(predictions, metrics, settings.evaluation, seed=0)
+    return build_report(predictions, metrics, settings.evaluation, settings.backtest, seed=0)
 
 
 def test_a_real_signal_is_significant(fast_settings: Settings) -> None:
@@ -57,6 +59,8 @@ def test_a_real_signal_is_significant(fast_settings: Settings) -> None:
     assert comparison["p_holm"] < 0.05
     assert report["candidates"]["Model"]["brier_skill"] > 0
     assert "significantly outperform" in report["conclusion"][0]
+    assert report["backtest"]["strategies"]["Model"]["delta_sharpe"]["low"] > 0
+    assert "Sharpe ratio significantly above buy & hold" in report["conclusion"][4]
     assert not any(line.startswith("Conclusion:") for line in report["conclusion"])
 
 
@@ -64,6 +68,7 @@ def test_noise_is_reported_honestly(fast_settings: Settings) -> None:
     report = _report(fast_settings, signal=0.0)
 
     assert not report["comparisons"]["Model"]["significant"]
+    assert report["conclusion"][4].startswith("No model's strategy has a significantly higher")
     assert report["conclusion"][0].startswith("No model has a significantly higher")
     assert report["conclusion"][-1].startswith("Conclusion: the evidence does not support")
 
@@ -78,6 +83,17 @@ def test_report_structure(fast_settings: Settings) -> None:
     assert majority["brier_skill"] == 0.0
     assert report["n_days"] == 252
     assert report["bootstrap"]["n_resamples"] == 200
+    strategies = report["backtest"]["strategies"]
+    assert list(strategies) == [
+        "Buy & hold (always long)",
+        "Model",
+        "Majority class",
+        "Persistence",
+    ]
+    assert strategies["Buy & hold (always long)"]["exposure"] == 1.0
+    assert strategies["Buy & hold (always long)"]["delta_sharpe"] is None
+    assert strategies["Majority class"]["exposure"] == 1.0  # P(up) = 0.52 >= 0.5: always long
+    assert strategies["Majority class"]["delta_sharpe"]["estimate"] == 0.0
     json.dumps(report)  # serialisable
 
 
@@ -85,7 +101,9 @@ def test_brier_skill_is_omitted_without_a_majority_baseline(fast_settings: Setti
     predictions, metrics = _run_artefacts(0.5)
     del metrics["models"]["Majority class"]
 
-    report = build_report(predictions, metrics, fast_settings.evaluation, seed=0)
+    report = build_report(
+        predictions, metrics, fast_settings.evaluation, fast_settings.backtest, seed=0
+    )
 
     assert report["candidates"]["Model"]["brier_skill"] is None
     assert "| — |" in render_markdown(report)
@@ -106,6 +124,8 @@ def test_markdown_states_the_data_provenance(
     assert text in markdown
     assert "## Models vs the reference baseline" in markdown
     assert "| Model | model |" in markdown
+    assert "## Economic backtest" in markdown
+    assert "Long/flat strategy" in markdown
 
 
 def test_generate_report_requires_a_training_run(fast_settings: Settings) -> None:
@@ -126,6 +146,7 @@ def test_generate_report_writes_markdown_json_and_plot(fast_settings: Settings) 
     assert path.read_text().startswith("# Statistical evaluation report")
     assert json.loads(paths.report_data_file.read_text())["reference_baseline"]
     assert (paths.plots_dir / "reliability_diagram.png").is_file()
+    assert (paths.plots_dir / "equity_curves.png").is_file()
 
 
 def test_report_is_deterministic(fast_settings: Settings, tmp_path: Path) -> None:

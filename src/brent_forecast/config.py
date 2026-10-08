@@ -141,6 +141,15 @@ class EvaluationSettings(_Section):
     reliability_bins: int = Field(ge=2)
 
 
+class BacktestSettings(_Section):
+    """Long/flat (or long/short) trading simulation of the predictions."""
+
+    cost_bps: float = Field(ge=0.0)
+    threshold: float = Field(gt=0.0, lt=1.0)
+    allow_short: bool
+    periods_per_year: int = Field(ge=1)
+
+
 class ModelSettings(_Section):
     """Fixed hyperparameters and search grid of one model."""
 
@@ -174,6 +183,7 @@ class Settings(BaseSettings):
     preprocessing: PreprocessingSettings
     validation: ValidationSettings
     evaluation: EvaluationSettings
+    backtest: BacktestSettings
     models: ModelsSettings
 
     @classmethod

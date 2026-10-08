@@ -168,6 +168,11 @@ because its constant is re-estimated at every refit.
 - **Binomial test** of accuracy against the no-information rate (always predicting the majority class).
 - **Calibration**: Brier score, Brier skill score against the majority-class (climatological) forecast and
   a reliability diagram.
+- **Economic backtest** (`evaluation/backtest.py`): each candidate becomes a long/flat strategy (long when
+  `P(up) >= 0.5`, optionally long/short) on the next day's return, paying 5 bps per unit of turnover. The
+  report gives CAGR, volatility, Sharpe ratio, maximum drawdown, hit ratio, exposure and number of trades,
+  and a paired block-bootstrap interval of the Sharpe difference against buy & hold. Settings live in the
+  `backtest` section of the config.
 - **Provenance**: the SHA-256 of the input files is stored in `metrics.json`; the report says whether
   they match the recorded Kaggle checksums or are unverified.
 
@@ -199,8 +204,20 @@ daily returns.
 | Random Forest | 0.473 [0.424, 0.518] | −0.035 [−0.096, +0.025] | 0.932 | −0.0201 |
 | MLP NumPy | 0.467 [0.425, 0.512] | −0.040 [−0.101, +0.024] | 0.932 | −0.0140 |
 
-Every AUC interval contains 0.5, no model beats persistence or the no-information rate, and none improves
-on the climatological probability: as expected on a random-walk price series, there is no skill to find.
+Backtest on the same days (long/flat, 5 bps per trade):
+
+| Strategy | CAGR | Sharpe | ΔSharpe vs buy & hold [95 % CI] | Max drawdown | Exposure |
+|----------|-----:|-------:|---------------------------------|-------------:|---------:|
+| Buy & hold | +32.8 % | 1.06 | — | −34.4 % | 100 % |
+| Logistic Regression | +0.4 % | 0.10 | −0.95 [−2.27, +0.41] | −22.4 % | 25 % |
+| SVM (RBF) | 0.0 % | 0.00 | −1.06 [−2.44, +0.35] | 0.0 % | 0 % |
+| Random Forest | −12.6 % | −0.57 | −1.63 [−2.75, −0.61] | −41.2 % | 41 % |
+| MLP NumPy | +3.4 % | 0.26 | −0.79 [−1.83, +0.23] | −28.5 % | 42 % |
+| Persistence (baseline) | +19.7 % | 0.90 | −0.16 [−1.04, +0.72] | −23.3 % | 48 % |
+
+Every AUC interval contains 0.5, no model beats persistence or the no-information rate, none improves on
+the climatological probability and no strategy beats buy & hold after costs: as expected on a random-walk
+price series, there is no skill to find. (The SVM never predicts "up", so it stays flat.)
 
 ---
 
