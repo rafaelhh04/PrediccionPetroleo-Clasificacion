@@ -32,6 +32,7 @@ from brent_forecast.features.preprocessing import (
 from brent_forecast.features.transformers import VIFSelector, Winsorizer
 from brent_forecast.models.registry import build_pipeline
 from brent_forecast.validation.walk_forward import PurgedWalkForwardSplit
+from conftest import EXPECTED_FEATURES
 
 SPLIT = SplitSettings(test_start="2024-01-01")
 PURGE, EMBARGO = 1, 5
@@ -178,6 +179,31 @@ def test_rewriting_the_future_never_changes_past_features(
     )
 
     pd.testing.assert_frame_equal(original, rewritten)
+
+
+@pytest.mark.parametrize("feature", EXPECTED_FEATURES)
+def test_each_feature_only_uses_data_up_to_its_own_day(
+    merged_frame: pd.DataFrame, feature: str
+) -> None:
+    """Truncation test: computing on rows ``<= t`` gives the same value at ``t``."""
+    full, _ = engineer_features(merged_frame.copy())
+    for t in (300, 1500, 3000):
+        truncated, _ = engineer_features(merged_frame.iloc[: t + 1].copy())
+
+        pd.testing.assert_series_equal(truncated[feature], full[feature].iloc[: t + 1])
+
+
+def test_truncation_test_detects_a_centred_window(merged_frame: pd.DataFrame) -> None:
+    """Control: a feature peeking one day ahead (centred window) fails the truncation test."""
+
+    def leaky(frame: pd.DataFrame) -> pd.Series:
+        return frame["brent_price"].rolling(3, center=True).mean()
+
+    t = 1500
+    full, truncated = leaky(merged_frame), leaky(merged_frame.iloc[: t + 1])
+
+    assert truncated.iloc[t] != truncated.iloc[t]  # NaN: needs day t + 1
+    assert np.isfinite(full.iloc[t])
 
 
 def test_label_depends_only_on_the_next_day(merged_frame: pd.DataFrame) -> None:
