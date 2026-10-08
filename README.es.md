@@ -100,6 +100,11 @@ test binomial de accuracy frente a la *no-information rate*, Brier score, Brier 
 previsión climatológica y diagrama de fiabilidad. El informe indica si los datos coinciden con los
 checksums registrados de Kaggle o si su procedencia no está verificada.
 
+**Backtest económico:** cada candidato se convierte en una estrategia long/flat (comprado si
+`P(sube) >= 0.5`) sobre el retorno del día siguiente, con 5 pb de coste por operación. Se reportan CAGR,
+volatilidad, Sharpe, drawdown máximo, hit ratio, exposición y número de operaciones, y un intervalo por
+block bootstrap de la diferencia de Sharpe frente a buy & hold.
+
 ## Resultados (AUC-ROC)
 
 Ejecución de referencia del proyecto original con los datos de Kaggle. Es anterior a las correcciones de
@@ -127,8 +132,9 @@ débil para retornos diarios.
 | Random Forest | 0.473 [0.424, 0.518] | −0.035 [−0.096, +0.025] | 0.932 |
 | MLP NumPy | 0.467 [0.425, 0.512] | −0.040 [−0.101, +0.024] | 0.932 |
 
-Todos los intervalos de AUC contienen 0.5 y ningún modelo supera a la persistencia ni a la
-*no-information rate*: no hay capacidad predictiva que encontrar.
+Todos los intervalos de AUC contienen 0.5, ningún modelo supera a la persistencia ni a la
+*no-information rate* y ninguna estrategia bate a buy & hold tras costes (Sharpe 1.06 frente a 0.26 del mejor
+modelo, la MLP): no hay capacidad predictiva que encontrar.
 
 ---
 
