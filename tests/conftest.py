@@ -210,7 +210,15 @@ def fast_settings(tmp_path: Path) -> Settings:
     return load_settings(
         CONFIG_PATH,
         paths=_paths(tmp_path),
-        cv={"n_splits": 2, "scoring": "roc_auc"},
+        validation={
+            "purge": 1,
+            "embargo": 5,
+            "tuning_splits": 2,
+            "scoring": "roc_auc",
+            "mode": "expanding",
+            "test_window": 63,
+            "rolling_train_size": 1260,
+        },
         evaluation={"learning_curve_train_sizes": [0.5, 1.0]},
         models=FAST_MODELS,
     )

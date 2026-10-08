@@ -11,7 +11,7 @@ below only declare types and constraints.
 
 from datetime import date
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, model_validator
 from pydantic_settings import (
@@ -51,6 +51,11 @@ class PathsSettings(_Section):
         return self.results_dir / "models"
 
     @property
+    def predictions_file(self) -> Path:
+        """Out-of-sample predictions of every model (one row per test day)."""
+        return self.results_dir / "predictions.csv"
+
+    @property
     def metrics_file(self) -> Path:
         """Machine-readable metrics of the last training run."""
         return self.results_dir / "metrics.json"
@@ -79,16 +84,9 @@ class DataSettings(_Section):
 
 
 class SplitSettings(_Section):
-    """Chronological train/validation/test boundaries."""
+    """Boundary between the development period and the out-of-sample (test) period."""
 
-    train_end: date
-    val_end: date
-
-    @model_validator(mode="after")
-    def _check_order(self) -> Self:
-        if self.train_end >= self.val_end:
-            raise ValueError("split.train_end must be earlier than split.val_end")
-        return self
+    test_start: date
 
 
 class PreprocessingSettings(_Section):
@@ -105,11 +103,21 @@ class PreprocessingSettings(_Section):
         return self
 
 
-class CVSettings(_Section):
-    """Time-series cross-validation used for tuning and learning curves."""
+class ValidationSettings(_Section):
+    """Purged walk-forward validation (tuning folds and out-of-sample windows)."""
 
-    n_splits: int = Field(ge=2)
+    purge: int = Field(ge=0)
+    embargo: int = Field(ge=0)
+    tuning_splits: int = Field(ge=2)
     scoring: str
+    mode: Literal["expanding", "rolling"]
+    test_window: int = Field(ge=1)
+    rolling_train_size: int = Field(ge=1)
+
+    @property
+    def max_train_size(self) -> int | None:
+        """Training window length for rolling mode; ``None`` (expanding) otherwise."""
+        return self.rolling_train_size if self.mode == "rolling" else None
 
 
 class EvaluationSettings(_Section):
@@ -149,7 +157,7 @@ class Settings(BaseSettings):
     data: DataSettings
     split: SplitSettings
     preprocessing: PreprocessingSettings
-    cv: CVSettings
+    validation: ValidationSettings
     evaluation: EvaluationSettings
     models: ModelsSettings
 

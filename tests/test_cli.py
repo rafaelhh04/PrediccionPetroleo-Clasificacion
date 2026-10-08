@@ -94,7 +94,8 @@ def test_config_show_prints_resolved_config(monkeypatch: pytest.MonkeyPatch) -> 
     assert result.exit_code == 0
     config = json.loads(result.output)
     assert config["seed"] == 7
-    assert config["split"] == {"train_end": "2022-01-01", "val_end": "2024-01-01"}
+    assert config["split"] == {"test_start": "2024-01-01"}
+    assert config["validation"]["purge"] == 1
 
 
 def test_missing_config_file(tmp_path: Path) -> None:
@@ -105,12 +106,12 @@ def test_missing_config_file(tmp_path: Path) -> None:
 
 
 def test_invalid_config_values(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("BRENT_CV__N_SPLITS", "1")
+    monkeypatch.setenv("BRENT_VALIDATION__TUNING_SPLITS", "1")
 
     result = invoke(["--config", str(CONFIG_PATH), "config", "show"])
 
     assert result.exit_code == 2
-    assert "n_splits" in result.output
+    assert "tuning_splits" in result.output
 
 
 # ── data verify ───────────────────────────────────────────────

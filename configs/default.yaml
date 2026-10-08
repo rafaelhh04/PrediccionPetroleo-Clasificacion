@@ -4,7 +4,7 @@
 # BRENT_ and using "__" as the nesting delimiter, e.g.:
 #   BRENT_SEED=7
 #   BRENT_PATHS__DATA_DIR=/mnt/data
-#   BRENT_SPLIT__TRAIN_END=2021-01-01
+#   BRENT_SPLIT__TEST_START=2023-01-01
 #   BRENT_MODELS__RANDOM_FOREST__GRID='{"max_depth": [5, 10]}'
 # Relative paths are resolved against the current working directory.
 #
@@ -28,19 +28,25 @@ data:
   expected_start_max: 2011-12-31
   expected_end_min: 2025-01-01
 
-# Strict chronological split: train < train_end <= val < val_end <= test.
+# Development period: everything before `test_start` (hyperparameter tuning).
+# Out-of-sample period: from `test_start` on, evaluated by walk-forward.
 split:
-  train_end: 2022-01-01
-  val_end: 2024-01-01
+  test_start: 2024-01-01
 
 preprocessing:
   vif_threshold: 10.0     # iteratively drop the feature with the highest VIF above this
   winsor_lower: 0.01      # percentile bounds for return features (fitted on train only)
   winsor_upper: 0.99
 
-cv:
-  n_splits: 5             # TimeSeriesSplit folds (expanding window)
+# Purged walk-forward validation (see brent_forecast.validation.walk_forward).
+validation:
+  purge: 1                 # label horizon: day t's label is realised on t+1
+  embargo: 5               # extra buffer rows (features use rolling windows of up to 30 days)
+  tuning_splits: 5         # walk-forward folds inside the development period
   scoring: roc_auc
+  mode: expanding          # expanding | rolling training window
+  test_window: 63          # out-of-sample rows per refit (~1 quarter of trading days)
+  rolling_train_size: 1260 # rows in the rolling training window (~5 years), rolling mode only
 
 evaluation:
   learning_curve_train_sizes: [0.1, 0.25, 0.5, 0.75, 1.0]

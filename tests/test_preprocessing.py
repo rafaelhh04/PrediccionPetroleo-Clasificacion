@@ -11,7 +11,7 @@ from brent_forecast.features.preprocessing import (
     create_label,
     engineer_features,
     handle_nulls,
-    split_temporal,
+    split_by_date,
 )
 
 EXPECTED_FEATURES = [
@@ -199,35 +199,29 @@ def test_handle_nulls_forward_fills_vix() -> None:
     assert out["vix"].tolist() == [10.0, 10.0, 12.0]
 
 
-# ── split_temporal ────────────────────────────────────────────
+# ── split_by_date ─────────────────────────────────────────────
 
-SPLIT = SplitSettings(train_end="2022-01-01", val_end="2024-01-01")
-
-
-def _split_frame() -> pd.DataFrame:
-    dates = pd.to_datetime(
-        ["2021-12-30", "2021-12-31", "2022-01-01", "2023-12-31", "2024-01-01", "2024-06-03"]
-    )
-    return pd.DataFrame({"date": dates, "x": np.arange(6.0), "label": [0, 1, 0, 1, 0, 1.0]})
+SPLIT = SplitSettings(test_start="2024-01-01")
 
 
-def test_split_temporal_boundaries() -> None:
-    parts = split_temporal(_split_frame(), SPLIT)
+def test_split_by_date_boundary() -> None:
+    dates = pd.to_datetime(["2023-12-28", "2023-12-29", "2024-01-01", "2024-01-02"])
+    frame = pd.DataFrame({"date": dates, "x": np.arange(4.0), "label": [0, 1, 0, 1.0]})
 
-    assert parts.train["x"].tolist() == [0.0, 1.0]  # date < train_end
-    assert parts.val["x"].tolist() == [2.0, 3.0]  # train_end <= date < val_end
-    assert parts.test["x"].tolist() == [4.0, 5.0]  # date >= val_end
+    parts = split_by_date(frame, SPLIT)
+
+    assert parts.dev["x"].tolist() == [0.0, 1.0]  # date < test_start
+    assert parts.test["x"].tolist() == [2.0, 3.0]  # date >= test_start
 
 
-def test_split_temporal_is_a_partition(merged_frame: pd.DataFrame) -> None:
+def test_split_by_date_is_a_chronological_partition(merged_frame: pd.DataFrame) -> None:
     frame = build_dataset(merged_frame.copy()).frame
 
-    parts = split_temporal(frame, SPLIT)
+    parts = split_by_date(frame, SPLIT)
 
-    assert len(parts.train) + len(parts.val) + len(parts.test) == len(frame)
-    assert min(len(parts.train), len(parts.val), len(parts.test)) > 0
-    assert parts.train["date"].max() < parts.val["date"].min()
-    assert parts.val["date"].max() < parts.test["date"].min()
+    assert len(parts.dev) + len(parts.test) == len(frame)
+    assert parts.dev["date"].max() < parts.test["date"].min()
+    assert parts.dev.index.tolist() == list(range(len(parts.dev)))  # positions = row index
 
 
 # ── build_dataset ─────────────────────────────────────────────

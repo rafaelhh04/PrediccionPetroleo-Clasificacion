@@ -1,17 +1,18 @@
-"""Hyperparameter tuning helpers built on TimeSeriesSplit.
+"""Hyperparameter search helpers.
 
 Project conventions:
 
-- CV is always ``TimeSeriesSplit`` (never KFold/StratifiedKFold), so that the
-  temporal order is respected.
-- The search only sees ``X_train``; ``X_val`` remains an independent holdout.
+- CV is always a purged walk-forward splitter (never KFold/StratifiedKFold), so
+  that the temporal order is respected and labels never straddle a fold edge.
+- The search only sees the development period; the out-of-sample period is
+  evaluated afterwards by walk-forward.
 """
 
 import logging
 from collections.abc import Mapping, Sequence
 from typing import Any, TypedDict
 
-from sklearn.model_selection import GridSearchCV, TimeSeriesSplit
+from sklearn.model_selection import GridSearchCV
 
 logger = logging.getLogger(__name__)
 
@@ -24,15 +25,6 @@ class GridResult(TypedDict):
     std_cv_auc: float
 
 
-def make_time_series_cv(n_splits: int) -> TimeSeriesSplit:
-    """Return the project's expanding-window ``TimeSeriesSplit``.
-
-    Each fold uses the whole history available before its validation block,
-    as a production model would.
-    """
-    return TimeSeriesSplit(n_splits=n_splits)
-
-
 def grid_search(
     estimator: Any,
     grid: Mapping[str, Sequence[Any]] | Sequence[Mapping[str, Sequence[Any]]],
@@ -43,7 +35,7 @@ def grid_search(
     scoring: str,
     n_jobs: int,
     model_name: str,
-) -> dict[str, Any]:
+) -> GridResult:
     """Run ``GridSearchCV`` (no refit), log the top configurations and return the best one.
 
     Parameters
@@ -65,8 +57,8 @@ def grid_search(
 
     Returns
     -------
-    dict
-        Best hyperparameters found (only the searched keys).
+    GridResult
+        Best configuration (only the searched keys) with its mean and std CV score.
     """
     search = GridSearchCV(estimator, grid, cv=cv, scoring=scoring, n_jobs=n_jobs, refit=False)
     search.fit(X_train, y_train)
@@ -82,8 +74,7 @@ def grid_search(
     ]
     log_grid_results(model_name, results, top_k=5)
 
-    best: dict[str, Any] = search.best_params_
-    return best
+    return max(results, key=lambda r: r["mean_cv_auc"])
 
 
 def log_grid_results(

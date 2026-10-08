@@ -5,7 +5,6 @@ recall (macro), F1 (macro) and ROC AUC.
 """
 
 import logging
-from collections.abc import Sequence
 from pathlib import Path
 
 import matplotlib
@@ -21,10 +20,9 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
     roc_auc_score,
-    roc_curve,
 )
 
-from brent_forecast._types import Metrics, ModelResult
+from brent_forecast._types import Metrics
 
 logger = logging.getLogger(__name__)
 
@@ -102,73 +100,6 @@ def plot_confusion_matrix(
     fig.colorbar(im, ax=ax, fraction=0.045)
     fig.tight_layout()
     return save_figure(fig, save_dir, f"confusion_{safe_name(model_name)}.png")
-
-
-def plot_roc_curve(
-    y_true: npt.ArrayLike,
-    y_proba: npt.ArrayLike,
-    model_name: str,
-    save_dir: Path,
-) -> Path:
-    """Save the ROC curve of a model as a PNG and return its path."""
-    fpr, tpr, _ = roc_curve(y_true, y_proba)
-    auc = roc_auc_score(y_true, y_proba)
-
-    fig, ax = plt.subplots(figsize=(5, 4.5))
-    ax.plot(fpr, tpr, label=f"AUC = {auc:.3f}", linewidth=2)
-    ax.plot([0, 1], [0, 1], linestyle="--", color="gray", label="Random")
-    ax.set_xlabel("False positive rate (FPR)")
-    ax.set_ylabel("True positive rate (TPR)")
-    ax.set_title(f"ROC curve — {model_name}")
-    ax.legend(loc="lower right")
-    ax.grid(alpha=0.3)
-    fig.tight_layout()
-    return save_figure(fig, save_dir, f"roc_{safe_name(model_name)}.png")
-
-
-def plot_roc_comparison(
-    results: Sequence[ModelResult], y_val: npt.ArrayLike, save_dir: Path
-) -> Path:
-    """Save the validation ROC curves of all models overlaid in one figure."""
-    fig, ax = plt.subplots(figsize=(6, 5))
-    for r in results:
-        fpr, tpr, _ = roc_curve(y_val, r["y_proba_val"])
-        auc = r["metrics_val"]["auc_roc"]
-        ax.plot(fpr, tpr, linewidth=2, label=f"{r['model_name']} (AUC={auc:.3f})")
-
-    ax.plot([0, 1], [0, 1], linestyle="--", color="gray", label="Random")
-    ax.set_xlabel("False positive rate (FPR)")
-    ax.set_ylabel("True positive rate (TPR)")
-    ax.set_title("ROC comparison — all models (validation)")
-    ax.legend(loc="lower right")
-    ax.grid(alpha=0.3)
-    fig.tight_layout()
-    return save_figure(fig, save_dir, "roc_comparison.png")
-
-
-def log_summary_table(results: Sequence[ModelResult]) -> None:
-    """Log a train/validation comparison table of the models."""
-    lines = [
-        "=" * 82,
-        f"{'Model':<25}"
-        f"{'Acc(tr)':>10}{'Acc(val)':>10}{'Prec(val)':>11}"
-        f"{'Rec(val)':>10}{'F1(val)':>9}{'AUC(val)':>10}",
-        "-" * 82,
-    ]
-    for r in results:
-        m_tr = r["metrics_train"]
-        m_va = r["metrics_val"]
-        lines.append(
-            f"{r['model_name']:<25}"
-            f"{m_tr['accuracy']:>10.4f}"
-            f"{m_va['accuracy']:>10.4f}"
-            f"{m_va['precision']:>11.4f}"
-            f"{m_va['recall']:>10.4f}"
-            f"{m_va['f1']:>9.4f}"
-            f"{m_va['auc_roc']:>10.4f}"
-        )
-    lines.append("=" * 82)
-    logger.info("Validation summary:\n%s", "\n".join(lines))
 
 
 def safe_name(name: str) -> str:

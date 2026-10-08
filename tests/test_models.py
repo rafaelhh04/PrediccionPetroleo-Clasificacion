@@ -9,14 +9,13 @@ import pandas as pd
 import pytest
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import TimeSeriesSplit
 from sklearn.pipeline import Pipeline
 from sklearn.svm import SVC
 from sklearn.utils.estimator_checks import parametrize_with_checks
 
 from brent_forecast.config import Settings
 from brent_forecast.models import neural_network
-from brent_forecast.models.base import fit_and_evaluate, log_top_features
+from brent_forecast.models.base import log_top_features
 from brent_forecast.models.mlp import NumpyMLPClassifier
 from brent_forecast.models.registry import (
     MODEL_NAMES,
@@ -25,9 +24,9 @@ from brent_forecast.models.registry import (
     model_params,
     param_grid,
 )
-from brent_forecast.models.tuning import grid_search, log_grid_results, make_time_series_cv
+from brent_forecast.models.tuning import grid_search, log_grid_results
+from brent_forecast.validation.walk_forward import PurgedWalkForwardSplit
 
-RESULT_KEYS = {"model_name", "model", "metrics_train", "metrics_val", "y_pred_val", "y_proba_val"}
 FEATURES = [f"f{i}" for i in range(5)]
 
 
@@ -37,17 +36,6 @@ def _split(xy: tuple[np.ndarray, np.ndarray]) -> tuple[np.ndarray, ...]:
 
 
 # ── tuning helpers ────────────────────────────────────────────
-
-
-def test_make_time_series_cv_is_expanding_and_ordered() -> None:
-    cv = make_time_series_cv(3)
-    folds = list(cv.split(np.zeros((40, 1))))
-
-    assert isinstance(cv, TimeSeriesSplit)
-    assert len(folds) == 3
-    for train_idx, val_idx in folds:
-        assert train_idx.max() < val_idx.min()
-    assert [len(tr) for tr, _ in folds] == sorted(len(tr) for tr, _ in folds)
 
 
 def test_grid_search_returns_best_params_and_logs(
@@ -61,14 +49,16 @@ def test_grid_search_returns_best_params_and_logs(
         {"C": [1e-6, 1.0]},
         X,
         y,
-        cv=make_time_series_cv(3),
+        cv=PurgedWalkForwardSplit(3, purge=1),
         scoring="roc_auc",
         n_jobs=1,
         model_name="LR",
     )
 
-    assert set(best) == {"C"}
-    assert best["C"] in (1e-6, 1.0)
+    assert set(best["params"]) == {"C"}
+    assert best["params"]["C"] in (1e-6, 1.0)
+    assert 0.5 < best["mean_cv_auc"] <= 1.0
+    assert best["std_cv_auc"] >= 0
     assert "[LR] Top 2 configurations" in caplog.text
 
 
@@ -84,26 +74,6 @@ def test_log_grid_results_sorts_and_truncates(caplog: pytest.LogCaptureFixture) 
     assert "Top 2 configurations" in caplog.text
     assert "Best params: {'k': 1}" in caplog.text
     assert "0.4900" not in caplog.text
-
-
-# ── shared sklearn evaluation ─────────────────────────────────
-
-
-def test_fit_and_evaluate(toy_xy: tuple[np.ndarray, np.ndarray], plots_dir: Path) -> None:
-    X_tr, y_tr, X_va, y_va = _split(toy_xy)
-    model = LogisticRegression()
-
-    result = fit_and_evaluate(model, "My Model", X_tr, y_tr, X_va, y_va, plots_dir)
-
-    assert set(result) == RESULT_KEYS
-    assert result["model"] is model
-    assert result["y_proba_val"].shape == (len(y_va),)
-    assert result["metrics_val"]["auc_roc"] > 0.8
-    assert (plots_dir / "confusion_my_model.png").is_file()
-    assert (plots_dir / "roc_my_model.png").is_file()
-
-
-# ── sklearn model modules ─────────────────────────────────────
 
 
 def _frames(
@@ -176,12 +146,14 @@ def test_every_model_pipeline_tunes_fits_and_serialises(
         param_grid(key, config.grid),
         X_tr,
         y_tr,
-        cv=make_time_series_cv(2),
+        cv=PurgedWalkForwardSplit(2, purge=1),
         scoring="roc_auc",
         n_jobs=1,
         model_name=MODEL_NAMES[key],
     )
-    pipe = build_pipeline(key, {**fixed, **model_params(best)}, fast_settings.preprocessing)
+    pipe = build_pipeline(
+        key, {**fixed, **model_params(best["params"])}, fast_settings.preprocessing
+    )
     pipe.fit(X_tr, y_tr)
     proba = pipe.predict_proba(X_va)[:, 1]
 
