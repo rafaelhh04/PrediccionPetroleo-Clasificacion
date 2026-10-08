@@ -177,7 +177,7 @@ Si el tiempo es limitado, el **mínimo viable de portfolio** es: Fases 1 + 2 + 3
 | 0 Plan | ✅ | `docs/roadmap-profesionalizacion` | Plan inicial creado |
 | 1 Fundamentos | ✅ (PRs abiertos, encadenados) | `chore/gitignore-cleanup`, `chore/project-packaging`, `feat/data-download`, `feat/config-management`, `refactor/structured-logging`, `chore/dev-tooling`, `docs/remove-stale-references` | uv + PEP 621 + src layout; CLI Typer; pydantic-settings + YAML + `BRENT_*`; logging estándar; ruff + mypy estricto + pre-commit. Ver notas de cierre ↓ |
 | 2 Calidad | ✅ | `test/unit-test-suite` (#9), `test/leakage-guards` (#10), `test/mlp-gradient-check` (#11), `ci/github-actions` (#12), `chore/repo-governance` | 130 tests, 98 % cobertura de ramas, gradient check ≤ 2.5e-9, CI 3.12/3.13 verde. Protección de `main` versionada como ruleset (requiere importarla). Ver notas de cierre ↓ |
-| 3 | ⏳ pendiente | | |
+| 3 Rigor ML | ✅ | `fix/label-last-row` (#15), `refactor/sklearn-pipelines` (#16), `feat/walk-forward-validation` (#17), `feat/baselines` (#18), `feat/statistical-evaluation` (#19), `feat/financial-backtest` (#20), `feat/feature-engineering-v2` (#21), `feat/gradient-boosting-optuna` (#22), `feat/model-explainability` (#23), `docs/model-card` (#24) | Pipelines sklearn + walk-forward purgado (10 ventanas OOS) + 4 baselines + `brent report` (IC block bootstrap, DeLong+Holm, binomial, Brier, backtest) + LightGBM/Optuna + `brent explain` (SHAP, permutation). Conclusión: sin señal. 422 tests, 99 % cobertura. Ver notas de cierre ↓ |
 | 4 | ⏳ pendiente | | |
 | 5 | ⏳ pendiente | | |
 | 6 | ⏳ pendiente | | |
@@ -259,6 +259,70 @@ dataset sintético de la Fase 1 produce un `metrics.json` idéntico byte a byte 
 **Lecciones de proceso.** `pre-commit run --all-files` solo ve ficheros versionados: hacer `git add` antes
 de ejecutar los hooks (documentado en `CONTRIBUTING.md`). Los tests de CLI normalizan la salida (ANSI),
 porque CI fuerza colores.
+
+
+### Notas de cierre — Fase 3
+
+**Resultado.** `brent train` → `brent report` → `brent explain` forman un flujo reproducible (semilla 42,
+LightGBM determinista, TPE con semilla) que compara 5 modelos con 4 baselines fuera de muestra
+(2024-01-01 → 2026-03-11, 10 ventanas walk-forward de 63 días, purga 1 + embargo 5) con IC al 95 % por
+*block bootstrap*, DeLong con corrección de Holm, test binomial, calibración y backtest con costes. La
+conclusión generada es honesta: **ningún modelo supera a la persistencia ni a buy & hold; todos los IC de
+AUC contienen 0.5**. Todas las cifras son del dataset **sintético** (Kaggle inaccesible desde el entorno;
+`configs/data_checksums.json` sigue con `null` y el informe lo declara "unverified").
+
+**Métricas clave (sintético, OOS).**
+
+| Modelo | AUC [IC 95 %] | Sharpe (5 pb) | ΔSharpe vs B&H [IC 95 %] |
+|---|---|---|---|
+| Logistic Regression | 0.536 [0.489, 0.582] | 1.11 | +0.06 [−1.09, +1.18] |
+| SVM (RBF) | 0.491 [0.442, 0.543] | 0.79 | −0.27 [−1.84, +1.21] |
+| Random Forest | 0.510 [0.465, 0.552] | −0.27 | −1.33 [−2.52, −0.21] |
+| MLP NumPy | 0.501 [0.453, 0.549] | 1.00 | −0.06 [−1.33, +1.15] |
+| LightGBM | 0.450 [0.401, 0.497] | −0.24 | −1.30 [−2.60, −0.07] |
+| Persistencia (mejor baseline) | 0.507 [0.474, 0.538] | 0.90 | −0.16 [−1.04, +0.72] |
+| Buy & hold | 0.500 | 1.06 | — |
+
+Calidad: 422 tests (+1 `slow` e2e train → report → explain), **98.8 % de cobertura de ramas**, `mypy --strict`
+sin `type: ignore` en `src/`, gradient check del MLP < 1e-6 y `check_estimator` en verde, CI 3.12/3.13 verde.
+
+**Decisiones y desviaciones respecto al plan.**
+- Bug de `create_label` corregido (la última fila sin retorno futuro se elimina en vez de etiquetarse 0);
+  la validación de alineación lanza `ValueError` (no `assert`). Los tests de leakage ya no excluyen nada.
+- Split fijo train/val/test sustituido por: tuning con CV walk-forward purgada (5 folds) en el periodo de
+  desarrollo `< 2024-01-01` + evaluación walk-forward OOS reentrenando cada 63 sesiones (expanding por
+  defecto, `rolling` configurable). `PurgedWalkForwardSplit` es un splitter de sklearn (sirve en
+  `GridSearchCV`, `cross_val_score`, `learning_curve`).
+- `SVC(probability=True)` → `CalibratedClassifierCV(sigmoid, ensemble=False)`; en la búsqueda se usa la
+  SVC desnuda (AUC solo necesita `decision_function`, ~5× más rápido).
+- MLP: early stopping sobre un *hold-out* cronológico interno (último 10 % del train) monitorizando la
+  pérdida; antes usaba el propio conjunto de validación (AUC optimista). Ya no hay `X_val` en la API.
+- Artefactos: un `.joblib` por modelo (pipeline completo reentrenado con todos los datos) en vez de un único
+  `pipeline.joblib`, porque se comparan 5 modelos; el campeón se elegirá en la Fase 4 (registry).
+- `brent report` es un comando aparte (lee `predictions.csv` + `metrics.json`, no reentrena); `brent
+  explain` reentrena en desarrollo y explica en OOS para no explicar memorización.
+- "Test binomial contra 50 %" → contra la *no-information rate* (más exigente y estándar, p. ej. caret).
+- Feature v2: 29 candidatas (antes 14); `day_of_week`/`month` crudos sustituidos por sin/cos. `next_return`
+  se guarda en el dataset solo para el backtest y está excluido explícitamente de las features (test).
+- Solo LightGBM (no XGBoost): una librería de boosting basta para el objetivo; Optuna solo para modelos con
+  `space` en el YAML (el resto mantiene grid, espacios pequeños y discretos).
+
+**Deuda técnica / pendientes.**
+- **Ejecutar con datos reales** (`brent data download` o `data verify`), commitear los checksums y
+  sustituir las tablas sintéticas de README y `docs/MODEL_CARD.md`.
+- `brent train` tarda ~11 min en 4 cores (Optuna 50 trials + SVM/RF con 29 features). Candidatos: cachear
+  el preprocesado por fold, `n_jobs` en Optuna con sampler determinista o menos trials en CI.
+- Optimismo del tuning sin medir (LightGBM: 0.517 en CV → 0.450 OOS): CV anidada o ventana de validación
+  de tuning separada.
+- El backtest ignora roll de futuros, financiación y slippage variable.
+- `pipeline.run` concentra orquestación + IO; la Fase 4 (MLflow/DVC) es buen momento para dividirlo en
+  etapas (`featurize`, `train`, `evaluate`).
+- Dependabot #14 (bump de `uv_build`) sigue abierto para revisión del usuario.
+
+**Lecciones de proceso.** El servidor de PRs añade un pie automático a la descripción: se crea el PR con un
+cuerpo mínimo y se sustituye con `update`. Para el merge con `expectedHeadSha` hace falta el SHA de 40
+caracteres. Los indicadores con ventanas largas (momentum 63) amplían el *warm-up*: ajustar los tests que
+cuentan filas descartadas.
 
 ---
 
