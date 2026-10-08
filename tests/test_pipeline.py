@@ -8,7 +8,9 @@ import pandas as pd
 import pytest
 
 from brent_forecast.config import Settings
+from brent_forecast.evaluation.report import generate_report
 from brent_forecast.pipeline import run
+from conftest import EVENTS_FILENAME, OIL_FILENAME
 
 MODELS = ["Logistic Regression", "SVM (RBF)", "Random Forest", "MLP NumPy"]
 BASELINES = ["Majority class", "Persistence", "Stratified random", "Buy & hold"]
@@ -31,8 +33,11 @@ def test_run_writes_predictions_metrics_models_and_plots(
     assert list(metrics["models"]) == MODELS + BASELINES
     kinds = [m["kind"] for m in metrics["models"].values()]
     assert kinds == ["model"] * 4 + ["baseline"] * 4
+    assert [m["key"] for m in metrics["models"].values()] == KEYS + BASELINE_KEYS
+    assert metrics["data"]["matches_recorded_checksums"] is None  # nothing recorded in tmp
+    assert set(metrics["data"]["sha256"]) == {OIL_FILENAME, EVENTS_FILENAME}
     for per_model in metrics["models"].values():
-        assert set(per_model) == {"kind", "cv", "oos", "windows"}
+        assert set(per_model) == {"key", "kind", "cv", "oos", "windows"}
         assert set(per_model["oos"]) == METRIC_KEYS
         assert all(0.0 <= v <= 1.0 for v in per_model["oos"].values())
         assert 0.0 <= per_model["cv"]["auc_mean"] <= 1.0
@@ -63,6 +68,10 @@ def test_run_writes_predictions_metrics_models_and_plots(
     for key in KEYS:
         model = joblib.load(paths.models_dir / f"{key}.joblib")
         assert hasattr(model, "predict_proba")
+
+    report = generate_report(fast_settings).read_text()
+    assert "unverified" in report
+    assert all(f"| {name} |" in report for name in MODELS + BASELINES)
 
 
 def test_run_is_deterministic(fast_settings: Settings, small_raw_data_dir: Path) -> None:

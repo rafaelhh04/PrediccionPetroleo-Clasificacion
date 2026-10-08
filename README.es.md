@@ -33,6 +33,7 @@ cd PrediccionPetroleo-Clasificacion
 uv sync                      # crea .venv a partir de uv.lock
 uv run brent data download   # descarga el dataset de Kaggle en data/raw/ (requiere credenciales)
 uv run brent train           # pipeline completa: preprocesado, tuning, entrenamiento y evaluación
+uv run brent report          # informe estadístico de la última ejecución (IC, tests, calibración)
 ```
 
 Los resultados se generan en `results/` (ignorado por git): `metrics.json` (métricas train/val/test),
@@ -88,8 +89,16 @@ resuelta.
 | SVM (kernel RBF, probabilidades calibradas) | scikit-learn |
 | Random Forest | scikit-learn |
 | **MLP 64 → 32 → 1** | **núcleo NumPy puro**, API de estimador scikit-learn |
+
 Baselines evaluados con el mismo walk-forward: clase mayoritaria, persistencia (mañana = hoy), aleatorio
 estratificado y buy & hold (siempre sube).
+
+**Evaluación estadística** (`brent report`, lee `predictions.csv` y `metrics.json` sin reentrenar):
+intervalos de confianza de AUC y accuracy con *block bootstrap* circular (bloques de 21 días, porque los
+días no son independientes), test de DeLong de cada modelo contra el mejor baseline con corrección de Holm,
+test binomial de accuracy frente a la *no-information rate*, Brier score, Brier skill score frente a la
+previsión climatológica y diagrama de fiabilidad. El informe indica si los datos coinciden con los
+checksums registrados de Kaggle o si su procedencia no está verificada.
 
 ## Resultados (AUC-ROC)
 
@@ -106,8 +115,20 @@ sintético de los tests.
 | MLP NumPy | 0.5717 | 0.4933 | 0.5002 |
 
 Ningún modelo supera al azar fuera de muestra, coherente con la hipótesis de mercado eficiente en su forma
-débil para retornos diarios. Demostrarlo con rigor (baselines, intervalos de confianza, tests estadísticos y
-backtest económico) es el objetivo de la siguiente fase del [roadmap](docs/ROADMAP.md).
+débil para retornos diarios.
+
+**Informe estadístico con el dataset sintético** (no son datos reales; fuera de muestra 2024-01-01 a
+2026-03-11, 573 días, IC 95 % por block bootstrap, baseline de referencia: persistencia, AUC 0.5073):
+
+| Modelo | AUC OOS [IC 95 %] | ΔAUC vs persistencia [IC 95 %] | p (Holm) |
+|--------|-------------------|--------------------------------|---------:|
+| Logistic Regression | 0.508 [0.470, 0.548] | +0.001 [−0.054, +0.056] | 1.000 |
+| SVM (RBF) | 0.492 [0.445, 0.541] | −0.015 [−0.065, +0.041] | 1.000 |
+| Random Forest | 0.473 [0.424, 0.518] | −0.035 [−0.096, +0.025] | 0.932 |
+| MLP NumPy | 0.467 [0.425, 0.512] | −0.040 [−0.101, +0.024] | 0.932 |
+
+Todos los intervalos de AUC contienen 0.5 y ningún modelo supera a la persistencia ni a la
+*no-information rate*: no hay capacidad predictiva que encontrar.
 
 ---
 

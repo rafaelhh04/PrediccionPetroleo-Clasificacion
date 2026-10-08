@@ -34,7 +34,8 @@ cd PrediccionPetroleo-Clasificacion
 
 uv sync                      # create .venv from uv.lock
 uv run brent data download   # fetch the Kaggle dataset into data/raw/ (needs Kaggle credentials)
-uv run brent train           # full pipeline: preprocess, tune, train, evaluate (~1-2 min)
+uv run brent train           # full pipeline: preprocess, tune, train, evaluate (~3 min)
+uv run brent report          # statistical report of the last run (CIs, tests, calibration)
 ```
 
 Outputs are written to `results/` (ignored by git):
@@ -45,7 +46,8 @@ Outputs are written to `results/` (ignored by git):
 | `results/predictions.csv` | Out-of-sample probability of every model for every test day (with its walk-forward window) |
 | `results/models/*.joblib` | Every pipeline refitted on all available data |
 | `results/run.log` | Full log of the run |
-| `results/plots/` | Out-of-sample ROC, AUC per window, confusion matrices, learning curves, MLP training curves |
+| `results/plots/` | Out-of-sample ROC, AUC per window, confusion matrices, learning curves, MLP training curves, reliability diagram |
+| `results/report.md`, `report.json` | Statistical report written by `brent report` |
 
 ### Data
 
@@ -77,6 +79,7 @@ when the upstream dataset legitimately changes; any other mismatch aborts and re
 brent [--config PATH] [--log-level LEVEL] COMMAND
 
   train            Run the full pipeline: load, preprocess, tune, train and evaluate on test
+  report           Build the statistical report (CIs, DeLong, binomial, calibration) of the last run
   data download    Download the Kaggle dataset and verify checksums  [--force] [--update-checksums]
   data verify      Verify the SHA-256 checksums of the local data files
   config show      Print the resolved configuration as JSON
@@ -150,6 +153,24 @@ Every model must beat naive baselines that go through exactly the same walk-forw
 A constant score has AUC 0.5 within a window; pooled over windows the majority baseline can deviate from 0.5
 because its constant is re-estimated at every refit.
 
+### Statistical evaluation
+
+`brent report` reads `predictions.csv` and `metrics.json` (no retraining) and writes `results/report.md`
+(`evaluation/statistics.py`, `evaluation/report.py`):
+
+- **Confidence intervals** for AUC and accuracy with a circular **block bootstrap** (blocks of 21 days,
+  2000 resamples): daily outcomes are serially dependent, so resampling single days would understate the
+  uncertainty. All candidates are resampled on the same days (paired).
+- **DeLong test** of each model's AUC against the reference baseline (the baseline with the highest
+  out-of-sample AUC), with **Holm** correction for the four comparisons. A model is called significantly
+  better only if the Holm-adjusted p-value is below α = 0.05 *and* the block-bootstrap interval of the AUC
+  difference is above zero (DeLong assumes independent days; the bootstrap does not).
+- **Binomial test** of accuracy against the no-information rate (always predicting the majority class).
+- **Calibration**: Brier score, Brier skill score against the majority-class (climatological) forecast and
+  a reliability diagram.
+- **Provenance**: the SHA-256 of the input files is stored in `metrics.json`; the report says whether
+  they match the recorded Kaggle checksums or are unverified.
+
 ---
 
 ## Results
@@ -166,8 +187,20 @@ the development environment, so later numbers are reproduced on the synthetic da
 | MLP NumPy | 0.5717 | 0.4933 | 0.5002 |
 
 No model beats a coin flip out of sample — consistent with the weak-form efficient-market hypothesis for
-daily returns. Proving this rigorously (baselines, confidence intervals, statistical tests, economic
-backtest) is the goal of the next phase of the [roadmap](docs/ROADMAP.md).
+daily returns.
+
+**Statistical report on the synthetic dataset** (not real data; out of sample 2024-01-01 to 2026-03-11,
+573 days, 95 % block-bootstrap intervals, reference baseline: Persistence, AUC 0.5073):
+
+| Model | OOS AUC [95 % CI] | ΔAUC vs Persistence [95 % CI] | p (Holm) | Brier skill |
+|-------|-------------------|-------------------------------|---------:|------------:|
+| Logistic Regression | 0.508 [0.470, 0.548] | +0.001 [−0.054, +0.056] | 1.000 | −0.0000 |
+| SVM (RBF) | 0.492 [0.445, 0.541] | −0.015 [−0.065, +0.041] | 1.000 | −0.0002 |
+| Random Forest | 0.473 [0.424, 0.518] | −0.035 [−0.096, +0.025] | 0.932 | −0.0201 |
+| MLP NumPy | 0.467 [0.425, 0.512] | −0.040 [−0.101, +0.024] | 0.932 | −0.0140 |
+
+Every AUC interval contains 0.5, no model beats persistence or the no-information rate, and none improves
+on the climatological probability: as expected on a random-walk price series, there is no skill to find.
 
 ---
 
