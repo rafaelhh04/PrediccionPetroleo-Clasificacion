@@ -1,0 +1,66 @@
+schema: '2.0'
+stages:
+  download:
+    cmd: brent data download
+    params:
+      configs/default.yaml:
+        data.events_filename: geopolitical_events_timeline.csv
+        data.kaggle_dataset:
+          kavyadhyani/global-oil-prices-andgeopolitical-events
+        data.oil_filename: oil_geopolitics_dataset_2010_2026.csv
+    outs:
+    - path: data/raw
+      hash: md5
+      md5: af6bd9e1267f40674da4d2c2f59ada36.dir
+      size: 1512390
+      nfiles: 2
+  validate:
+    cmd: brent data validate
+    deps:
+    - path: data/raw
+      hash: md5
+      md5: af6bd9e1267f40674da4d2c2f59ada36.dir
+      size: 1512390
+      nfiles: 2
+    - path: src/brent_forecast/data
+      hash: md5
+      md5: 7523862273692b2cd9df1b6e0e29d2c0.dir
+      size: 69678
+      nfiles: 11
+    params:
+      configs/default.yaml:
+        data.expected_end_min: '2025-01-01'
+        data.expected_start_max: '2011-12-31'
+        data.expected_start_min: '2009-01-01'
+    outs:
+    - path: results/validation.json
+      hash: md5
+      md5: 1543898f0bdeed80bff8dc4636de4b1e
+      size: 344
+  featurize:
+    cmd: brent featurize
+    deps:
+    - path: data/raw
+      hash: md5
+      md5: af6bd9e1267f40674da4d2c2f59ada36.dir
+      size: 1512390
+      nfiles: 2
+    - path: results/validation.json
+      hash: md5
+      md5: 1543898f0bdeed80bff8dc4636de4b1e
+      size: 344
+    - path: src/brent_forecast/data
+      hash: md5
+      md5: 7523862273692b2cd9df1b6e0e29d2c0.dir
+      size: 69678
+      nfiles: 11
+    - path: src/brent_forecast/features
+      hash: md5
+      md5: 140aea043f02ac4a8808365df2553775.dir
+      size: 69060
+      nfiles: 10
+    outs:
+    - path: data/processed/dataset.parquet
+      hash: md5
+      md5: 17e56acff31e0cb813c48c599a7547cf
+      size: 907852
