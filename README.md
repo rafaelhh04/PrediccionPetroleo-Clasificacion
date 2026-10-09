@@ -38,6 +38,7 @@ uv run brent data download   # fetch the Kaggle dataset into data/raw/ (needs Ka
 uv run brent train           # full pipeline: preprocess, tune, train, evaluate (~11 min on 4 cores)
 uv run brent report          # statistical report of the last run (CIs, tests, calibration)
 uv run brent explain         # permutation importance and SHAP of the trained models
+uv run brent registry show   # champion / challenger in the MLflow model registry
 ```
 
 Outputs are written to `results/` (ignored by git):
@@ -50,6 +51,7 @@ Outputs are written to `results/` (ignored by git):
 | `results/run.log` | Full log of the run |
 | `results/plots/` | Out-of-sample ROC, AUC per window, confusion matrices, learning curves, MLP training curves, reliability diagram |
 | `results/report.md`, `report.json` | Statistical report written by `brent report` |
+| `mlruns/` | MLflow store (SQLite) and artefacts of every tracked run; open with `uv run mlflow ui --backend-store-uri sqlite:///mlruns/mlflow.db` |
 | `results/explain/` | Permutation and SHAP importances (CSV) and `explanations.md`, written by `brent explain` |
 
 ### Data
@@ -84,6 +86,7 @@ brent [--config PATH] [--log-level LEVEL] COMMAND
   train            Run the full pipeline: load, preprocess, tune, train and evaluate on test
   report           Build the statistical report (CIs, DeLong, binomial, calibration) of the last run
   explain          Explain the trained models: permutation importance and SHAP (global and local)
+  registry show    Print the aliases (champion, challenger) of the registered model
   data download    Download the Kaggle dataset and verify checksums  [--force] [--update-checksums]
   data verify      Verify the SHA-256 checksums of the local data files
   config show      Print the resolved configuration as JSON
@@ -192,6 +195,26 @@ because its constant is re-estimated at every refit.
   `backtest` section of the config.
 - **Provenance**: the SHA-256 of the input files is stored in `metrics.json`; the report says whether
   they match the recorded Kaggle checksums or are unverified.
+
+### Experiment tracking and model registry
+
+With `tracking.enabled: true` (the default) every run is recorded in MLflow (`tracking.py`). The store is a
+local SQLite database under `mlruns/`; point `tracking.uri` at a tracking server to share runs.
+
+- `brent train` opens a parent run with the protocol (params), git commit/branch and data SHA-256 (tags), and
+  `metrics.json`, `predictions.csv`, the resolved configuration and every plot (artefacts). It adds one nested
+  run per candidate with its hyperparameters, CV and out-of-sample metrics, AUC per window (as steps) and the
+  pipeline refitted on all data. Models are stored with **skops**, not pickle, with an explicit allowlist of
+  trusted types.
+- `brent report` adds the statistics to the same run and applies the **promotion rule**:
+  - the best model by out-of-sample AUC becomes `champion` only if it beats the best baseline significantly
+    (Holm-adjusted DeLong and a bootstrap interval above zero);
+  - otherwise the best **baseline** is `champion` and the best model is `challenger`.
+
+  Deploying a model that cannot beat a naive rule only adds risk. Both are registered as versions of
+  `brent-direction-classifier` with the reason as a tag. `brent report` also writes
+  `results/promotion.json`.
+- Inference loads a model by alias: `mlflow.sklearn.load_model("models:/brent-direction-classifier@champion")`.
 
 ### Explainability
 

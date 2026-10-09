@@ -106,6 +106,14 @@ Bollinger(20, 2) %B y anchura, momentum de 21 y 63 días, cambios de VIX y DXY a
 seno/coseno del día de la semana y del mes. Cada feature tiene un test de truncamiento que prueba que solo
 usa datos hasta su propio día.
 
+**Tracking y registro de modelos (MLflow):** `brent train` registra un run padre (protocolo, commit de git,
+SHA-256 de los datos, métricas, predicciones, configuración y gráficos) y un run anidado por candidato
+(hiperparámetros, métricas, AUC por ventana y el pipeline final, serializado con skops). `brent report`
+añade la estadística y aplica la regla de promoción: el mejor modelo es `champion` solo si supera al mejor
+baseline con significancia; si no, el `champion` es el mejor baseline y el modelo queda como `challenger`.
+El modelo se carga por alias (`models:/brent-direction-classifier@champion`); `brent registry show` muestra
+los alias.
+
 **Explicabilidad** (`brent explain`): cada modelo se reentrena en el periodo de desarrollo y se explica en
 el periodo fuera de muestra, con *permutation importance* (caída de AUC al barajar cada feature) y SHAP
 (TreeSHAP para LightGBM/RF, forma cerrada para la logística y explainer por permutación para SVM/MLP). Se

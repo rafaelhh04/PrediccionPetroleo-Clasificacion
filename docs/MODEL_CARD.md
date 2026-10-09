@@ -112,6 +112,15 @@ order, and the top features differ between models (spread and Bollinger width fo
 for the trees). This pattern is what an absence of stable signal looks like. Treat these importances as
 diagnostics, not as evidence of economic drivers.
 
+## Deployment and promotion
+
+`brent report` decides which candidate is served (`tracking.py`, `select_champion`). The best model by
+out-of-sample AUC becomes the `champion` alias of the MLflow registered model only if it beats the best
+naive baseline significantly (Holm-adjusted DeLong *and* a block-bootstrap interval of the AUC difference
+above zero). Otherwise the best baseline is the `champion` and the best model the `challenger`. On the
+synthetic data no model qualifies, so the champion is a **naive baseline**. That is the honest choice: a
+model that cannot beat a naive rule only adds risk.
+
 ## Quantitative safeguards
 
 - Leakage tests:
