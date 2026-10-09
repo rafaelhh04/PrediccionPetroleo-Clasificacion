@@ -5,7 +5,7 @@ stages:
     params:
       configs/default.yaml:
         data.events_filename: geopolitical_events_timeline.csv
-        data.kaggle_dataset:
+        data.kaggle_dataset: 
           kavyadhyani/global-oil-prices-andgeopolitical-events
         data.oil_filename: oil_geopolitics_dataset_2010_2026.csv
     outs:
@@ -64,3 +64,333 @@ stages:
       hash: md5
       md5: 17e56acff31e0cb813c48c599a7547cf
       size: 907852
+  train:
+    cmd: brent train --features data/processed/dataset.parquet
+    deps:
+    - path: data/processed/dataset.parquet
+      hash: md5
+      md5: 17e56acff31e0cb813c48c599a7547cf
+      size: 907852
+    - path: src/brent_forecast/evaluation/learning_curves.py
+      hash: md5
+      md5: 3f7370968c6b26f9a712b53293eece6a
+      size: 4041
+    - path: src/brent_forecast/evaluation/metrics.py
+      hash: md5
+      md5: 88e3f99eab9b716bab70efb2a9bce930
+      size: 3539
+    - path: src/brent_forecast/evaluation/oos.py
+      hash: md5
+      md5: 7dba04434b2d1df5501dc7614ef7fb52
+      size: 4290
+    - path: src/brent_forecast/features/transformers.py
+      hash: md5
+      md5: a163ab331ced9e75721085bcc649a147
+      size: 7230
+    - path: src/brent_forecast/models
+      hash: md5
+      md5: 718c25f6434eb04133a17f93b1a7a312.dir
+      size: 127412
+      nfiles: 24
+    - path: src/brent_forecast/pipeline.py
+      hash: md5
+      md5: 6933573904bb630efe7e066ec3010cac
+      size: 11661
+    - path: src/brent_forecast/tracking.py
+      hash: md5
+      md5: f4f189242f19a5246c686dc0849892fb
+      size: 13972
+    - path: src/brent_forecast/validation
+      hash: md5
+      md5: f4763dc1e9e15b9e0f4146b88a66c029.dir
+      size: 20346
+      nfiles: 4
+    params:
+      configs/default.yaml:
+        evaluation.learning_curve_train_sizes:
+        - 0.1
+        - 0.25
+        - 0.5
+        - 0.75
+        - 1.0
+        models:
+          logistic_regression:
+            params:
+              C: 1.0
+              solver: lbfgs
+              max_iter: 1000
+            grid:
+              C:
+              - 0.01
+              - 0.1
+              - 1.0
+              - 10.0
+          svm:
+            params:
+              kernel: rbf
+              C: 1.0
+              gamma: scale
+            grid:
+              C:
+              - 0.1
+              - 1.0
+              - 10.0
+              gamma:
+              - scale
+              - 0.01
+              - 0.1
+          random_forest:
+            params:
+              n_estimators: 200
+              max_depth: 10
+              min_samples_leaf: 20
+              n_jobs: -1
+            grid:
+              n_estimators:
+              - 100
+              - 200
+              max_depth:
+              - 5
+              - 10
+              - 20
+              min_samples_leaf:
+              - 10
+              - 20
+              - 50
+          mlp:
+            params:
+              hidden_1: 64
+              hidden_2: 32
+              dropout_p: 0.2
+              learning_rate: 0.01
+              batch_size: 64
+              max_epochs: 100
+              patience: 10
+              validation_fraction: 0.1
+              early_stopping_metric: loss
+            grid:
+              hidden_pair:
+              - - 32
+                - 16
+              - - 64
+                - 32
+              - - 128
+                - 64
+              learning_rate:
+              - 0.005
+              - 0.01
+              - 0.05
+          lightgbm:
+            params:
+              n_estimators: 200
+              learning_rate: 0.05
+              num_leaves: 15
+              subsample_freq: 1
+              n_jobs: 1
+              deterministic: true
+              force_row_wise: true
+              verbose: -1
+            space:
+              n_estimators:
+                type: int
+                low: 50
+                high: 500
+                log: true
+              learning_rate:
+                type: float
+                low: 0.005
+                high: 0.1
+                log: true
+              num_leaves:
+                type: int
+                low: 4
+                high: 64
+                log: true
+              max_depth:
+                type: int
+                low: 2
+                high: 8
+              min_child_samples:
+                type: int
+                low: 20
+                high: 200
+                log: true
+              subsample:
+                type: float
+                low: 0.5
+                high: 1.0
+              colsample_bytree:
+                type: float
+                low: 0.5
+                high: 1.0
+              reg_lambda:
+                type: float
+                low: 0.001
+                high: 10.0
+                log: true
+        preprocessing:
+          vif_threshold: 10.0
+          winsor_lower: 0.01
+          winsor_upper: 0.99
+        seed: 42
+        split:
+          test_start: '2024-01-01'
+        tracking:
+          enabled: true
+          uri: sqlite:///mlruns/mlflow.db
+          artifact_dir: mlruns/artifacts
+          experiment: brent-direction
+          registered_model: brent-direction-classifier
+        tuning:
+          n_trials: 50
+          timeout:
+          pruning: true
+          startup_trials: 10
+        validation:
+          purge: 1
+          embargo: 5
+          tuning_splits: 5
+          scoring: roc_auc
+          mode: expanding
+          test_window: 63
+          rolling_train_size: 1260
+    outs:
+    - path: results/metrics.json
+      hash: md5
+      md5: 3c5512f06a3d1b105738ee630bc4114c
+      size: 22665
+    - path: results/mlflow_run.json
+      hash: md5
+      md5: 3cbd691afd43d1ef1ad54b9ef4e3a1c5
+      size: 1184
+    - path: results/models
+      hash: md5
+      md5: 1178882e1be61886284cf7f26957b57a.dir
+      size: 7718456
+      nfiles: 9
+    - path: results/plots/oos_auc_per_window.png
+      hash: md5
+      md5: c0054950090fe07c44b2be8fbc11014f
+      size: 132385
+    - path: results/plots/roc_oos_comparison.png
+      hash: md5
+      md5: 0b0ce68afc1ed92087d8e594bb4bcfe7
+      size: 118990
+    - path: results/predictions.csv
+      hash: md5
+      md5: 7ba5a2b401c0590854ed6255cc67d9aa
+      size: 95308
+  evaluate:
+    cmd: brent report
+    deps:
+    - path: results/metrics.json
+      hash: md5
+      md5: 3c5512f06a3d1b105738ee630bc4114c
+      size: 22665
+    - path: results/mlflow_run.json
+      hash: md5
+      md5: 3cbd691afd43d1ef1ad54b9ef4e3a1c5
+      size: 1184
+    - path: results/predictions.csv
+      hash: md5
+      md5: 7ba5a2b401c0590854ed6255cc67d9aa
+      size: 95308
+    - path: src/brent_forecast/evaluation/backtest.py
+      hash: md5
+      md5: c9a547e47ccdbae822567f7ec5377419
+      size: 4462
+    - path: src/brent_forecast/evaluation/report.py
+      hash: md5
+      md5: 04543eceb699202a8874c151f76ddfc0
+      size: 15116
+    - path: src/brent_forecast/evaluation/statistics.py
+      hash: md5
+      md5: f1a62e8ecc4a4fbcb69ff74e960e6994
+      size: 9607
+    - path: src/brent_forecast/tracking.py
+      hash: md5
+      md5: f4f189242f19a5246c686dc0849892fb
+      size: 13972
+    params:
+      configs/default.yaml:
+        backtest:
+          cost_bps: 5.0
+          threshold: 0.5
+          allow_short: false
+          periods_per_year: 252
+        evaluation:
+          learning_curve_train_sizes:
+          - 0.1
+          - 0.25
+          - 0.5
+          - 0.75
+          - 1.0
+          bootstrap_resamples: 2000
+          block_length: 21
+          confidence_level: 0.95
+          alpha: 0.05
+          reliability_bins: 10
+        seed: 42
+        tracking:
+          enabled: true
+          uri: sqlite:///mlruns/mlflow.db
+          artifact_dir: mlruns/artifacts
+          experiment: brent-direction
+          registered_model: brent-direction-classifier
+    outs:
+    - path: results/plots/equity_curves.png
+      hash: md5
+      md5: cda38c136eca1a75e02c6f24c17cc1d8
+      size: 141842
+    - path: results/plots/reliability_diagram.png
+      hash: md5
+      md5: ff35f2020c693c36135e5ae8c169fa2e
+      size: 71598
+    - path: results/promotion.json
+      hash: md5
+      md5: cecdba889f1499c05d9248f0584e8493
+      size: 295
+    - path: results/report.json
+      hash: md5
+      md5: e72eab8e4507146c4e933d420fcff6b8
+      size: 14055
+    - path: results/report.md
+      hash: md5
+      md5: 2123c0132b31528000a2bf1c2569f1d3
+      size: 4238
+  explain:
+    cmd: brent explain
+    deps:
+    - path: data/raw
+      hash: md5
+      md5: af6bd9e1267f40674da4d2c2f59ada36.dir
+      size: 1512390
+      nfiles: 2
+    - path: results/models
+      hash: md5
+      md5: 1178882e1be61886284cf7f26957b57a.dir
+      size: 7718456
+      nfiles: 9
+    - path: src/brent_forecast/evaluation/explain.py
+      hash: md5
+      md5: e705d049150d1579fecaea726b3e5e80
+      size: 9648
+    params:
+      configs/default.yaml:
+        explain:
+          models:
+          - logistic_regression
+          - random_forest
+          - lightgbm
+          permutation_repeats: 10
+          background_rows: 100
+          max_explained_rows: 600
+        seed: 42
+        split:
+          test_start: '2024-01-01'
+    outs:
+    - path: results/explain
+      hash: md5
+      md5: aa32321f1a183103a0c0acbe33169a19.dir
+      size: 8459
+      nfiles: 7
