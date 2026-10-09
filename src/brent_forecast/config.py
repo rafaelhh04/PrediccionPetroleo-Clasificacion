@@ -36,6 +36,16 @@ class PathsSettings(_Section):
     checksums_file: Path
 
     @property
+    def live_dir(self) -> Path:
+        """Raw files extended with recent data (``brent data ingest``), next to ``data_dir``."""
+        return self.data_dir.parent / "live"
+
+    @property
+    def prediction_file(self) -> Path:
+        """Latest prediction written by ``brent predict``."""
+        return self.results_dir / "prediction.json"
+
+    @property
     def dataset_file(self) -> Path:
         """Featurized dataset (Parquet) written by ``brent featurize``, next to ``data_dir``."""
         return self.data_dir.parent / "processed" / "dataset.parquet"
@@ -191,6 +201,27 @@ class SearchSpace(_Section):
         return self
 
 
+class LiveSource(_Section):
+    """Where one market series is fetched from."""
+
+    provider: Literal["yahoo", "fred"]
+    symbol: str = Field(min_length=1)
+
+
+class LiveSettings(_Section):
+    """Incremental ingestion of recent market data (``brent data ingest``)."""
+
+    lookback_days: int = Field(ge=31)
+    timeout_seconds: PositiveFloat
+    sources: dict[Literal["brent_price", "wti_price", "dxy_index", "vix"], LiveSource]
+
+    @model_validator(mode="after")
+    def _require_brent(self) -> Self:
+        if "brent_price" not in self.sources:
+            raise ValueError("live.sources must include brent_price (it defines the trading days)")
+        return self
+
+
 class TrackingSettings(_Section):
     """MLflow experiment tracking and model registry."""
 
@@ -267,6 +298,7 @@ class Settings(BaseSettings):
     tuning: TuningSettings
     explain: ExplainSettings
     tracking: TrackingSettings
+    live: LiveSettings
     models: ModelsSettings
 
     @classmethod

@@ -74,6 +74,18 @@ tracking:
   experiment: brent-direction
   registered_model: brent-direction-classifier
 
+# `brent data ingest`: append the days after the last available date to a copy of the prices file
+# (data/live/), never to the versioned raw snapshot. Brent defines the trading days; the other
+# series are aligned to them. GPR and geopolitical events have no live source (see the README).
+live:
+  lookback_days: 60         # history used to recompute rolling columns (30-day volatility)
+  timeout_seconds: 20
+  sources:
+    brent_price: {provider: yahoo, symbol: BZ=F}        # ICE Brent front-month future
+    wti_price: {provider: yahoo, symbol: CL=F}          # NYMEX WTI front-month future
+    dxy_index: {provider: yahoo, symbol: DX-Y.NYB}      # ICE US Dollar Index
+    vix: {provider: fred, symbol: VIXCLS}               # CBOE VIX close (FRED)
+
 # `brent explain`: every listed model is refitted on the development period and explained on the
 # out-of-sample period (permutation importance on raw features, SHAP on the model inputs).
 explain:
