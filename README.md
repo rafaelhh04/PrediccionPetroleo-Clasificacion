@@ -450,7 +450,15 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 
 ## Known limitations
 
-- A single fixed train/validation/test split; walk-forward validation is planned.
+- **Synthetic results.** Every number after the first results table comes from a synthetic dataset. The
+  development environment cannot reach Kaggle, Yahoo Finance or FRED, so the pipeline still has to be run
+  on the real data (see the [model card](docs/MODEL_CARD.md)).
+- **Live data.** There is no live source for the geopolitical risk index or the events: the last GPR value
+  is carried forward and new days have no event. Futures closes stand in for spot prices.
+- **Derived columns.** The recomputed returns, lags and volatilities assume the Kaggle definitions used by
+  the synthetic data. `brent data ingest` warns if the snapshot disagrees.
+- **Backtest.** It ignores the futures roll, financing and variable slippage.
+- **Runtime.** `brent train` takes about 12 minutes on 4 cores; `dvc repro` skips it when nothing changed.
 
 ## Author
 

@@ -222,6 +222,16 @@ numérico del MLP y tests de propiedades (Hypothesis); CI en Python 3.12 y 3.13 
 docstrings, logs y commits en inglés; Conventional Commits; semilla `42`. Guía completa en
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Limitaciones conocidas
+
+- **Resultados sintéticos.** Desde el entorno de desarrollo no se alcanza Kaggle, Yahoo Finance ni FRED.
+  Todas las cifras posteriores a la primera tabla de resultados salen del dataset sintético.
+- **Datos en vivo.** No hay fuente en vivo para el GPR ni para los eventos: el GPR se arrastra con su
+  último valor y los días nuevos no tienen evento. Los futuros sustituyen a los precios spot.
+- **Backtest.** No modela el roll de futuros, la financiación ni el slippage variable.
+- **Tiempo de entrenamiento.** `brent train` tarda unos 12 minutos en 4 cores; `dvc repro` lo evita si
+  nada cambió.
+
 ## Autor
 
 Rafael Hernando Herias — proyecto individual de la asignatura de Aprendizaje Automático (curso 2025-26).
