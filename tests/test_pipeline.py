@@ -68,7 +68,7 @@ def test_run_writes_predictions_metrics_models_and_plots(
     trials = pd.read_csv(paths.results_dir / "optuna_lightgbm.csv")
     assert len(trials) == fast_settings.tuning.n_trials
 
-    for key in KEYS:
+    for key in KEYS + BASELINE_KEYS:  # baselines too: one of them may become champion
         model = joblib.load(paths.models_dir / f"{key}.joblib")
         assert hasattr(model, "predict_proba")
 
