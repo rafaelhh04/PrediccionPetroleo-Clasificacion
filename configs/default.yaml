@@ -64,6 +64,16 @@ backtest:
   allow_short: false
   periods_per_year: 252     # trading days, to annualise returns and Sharpe ratios
 
+# MLflow (`brent train` logs every candidate; `brent report` logs the statistics and promotes).
+# Local by default: a SQLite store and an artefact folder under mlruns/ (ignored by git).
+# Point `uri` to a tracking server (e.g. http://localhost:5000) to share runs.
+tracking:
+  enabled: true
+  uri: sqlite:///mlruns/mlflow.db
+  artifact_dir: mlruns/artifacts
+  experiment: brent-direction
+  registered_model: brent-direction-classifier
+
 # `brent explain`: every listed model is refitted on the development period and explained on the
 # out-of-sample period (permutation importance on raw features, SHAP on the model inputs).
 explain:

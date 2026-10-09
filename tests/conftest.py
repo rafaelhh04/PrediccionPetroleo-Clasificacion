@@ -190,6 +190,17 @@ def merged_frame(tmp_path_factory: pytest.TempPathFactory) -> pd.DataFrame:
     )
 
 
+def _tracking(tmp_path: Path, enabled: bool = False) -> dict[str, Any]:
+    """MLflow settings isolated in ``tmp_path`` (disabled unless a test opts in)."""
+    return {
+        "enabled": enabled,
+        "uri": f"sqlite:///{tmp_path / 'mlruns' / 'mlflow.db'}",
+        "artifact_dir": tmp_path / "mlruns" / "artifacts",
+        "experiment": "test-experiment",
+        "registered_model": "test-model",
+    }
+
+
 def _paths(tmp_path: Path) -> dict[str, Any]:
     return {
         "data_dir": tmp_path / "data" / "raw",
@@ -201,7 +212,7 @@ def _paths(tmp_path: Path) -> dict[str, Any]:
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     """Settings from configs/default.yaml with every path under ``tmp_path``."""
-    return load_settings(CONFIG_PATH, paths=_paths(tmp_path))
+    return load_settings(CONFIG_PATH, paths=_paths(tmp_path), tracking=_tracking(tmp_path))
 
 
 # Settings sources are deep-merged, so every grid key of configs/default.yaml must be
@@ -265,6 +276,7 @@ def fast_settings(tmp_path: Path) -> Settings:
         },
         evaluation={"learning_curve_train_sizes": [0.5, 1.0], "bootstrap_resamples": 200},
         tuning=FAST_TUNING,
+        tracking=_tracking(tmp_path),
         models=FAST_MODELS,
     )
 
