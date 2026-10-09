@@ -82,13 +82,25 @@ def _settings(ctx: typer.Context) -> Settings:
 
 
 @app.command()
-def train(ctx: typer.Context) -> None:
+def train(
+    ctx: typer.Context,
+    features: Annotated[
+        Path | None,
+        typer.Option(
+            "--features",
+            help="Train on a dataset written by `brent featurize` instead of the raw files.",
+        ),
+    ] = None,
+) -> None:
     """Run the full pipeline: load, preprocess, tune, train and evaluate on test."""
     from brent_forecast.pipeline import run
 
     settings = _settings(ctx)
+    if features is not None and not features.is_file():
+        typer.secho(f"{features} not found; run `brent featurize` first.", fg="red", err=True)
+        raise typer.Exit(code=1)
     setup_logging(_state(ctx).log_level, log_file=settings.paths.log_file)
-    result = run(settings)
+    result = run(settings, features)
     if settings.tracking.enabled:
         from brent_forecast.tracking import log_training
 
@@ -186,6 +198,45 @@ def data_download(
         raise typer.Exit(code=1) from exc
     for path in files.values():
         typer.echo(f"Ready: {path}")
+
+
+@app.command()
+def featurize(
+    ctx: typer.Context,
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output", "-o", help="Parquet file (default: data/processed/dataset.parquet)."
+        ),
+    ] = None,
+) -> None:
+    """Build the model-ready dataset from the raw files and save it as Parquet."""
+    from brent_forecast.data.stages import featurize as build
+
+    settings = _settings(ctx)
+    try:
+        path = build(settings, output)
+    except (FileNotFoundError, ValueError) as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"Dataset written to {path}")
+
+
+@data_app.command("validate")
+def data_validate(ctx: typer.Context) -> None:
+    """Validate the raw files (schema, dates, sanity bounds) and write validation.json."""
+    from brent_forecast.data.stages import validate_raw
+
+    settings = _settings(ctx)
+    try:
+        summary = validate_raw(settings)
+    except (FileNotFoundError, ValueError) as exc:
+        typer.secho(f"Invalid data: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(
+        f"Valid: {summary['rows']} rows, {summary['start']} -> {summary['end']} "
+        f"(written to {settings.paths.validation_file})"
+    )
 
 
 @data_app.command("verify")

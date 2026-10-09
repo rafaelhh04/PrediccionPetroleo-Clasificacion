@@ -106,6 +106,13 @@ Bollinger(20, 2) %B y anchura, momentum de 21 y 63 días, cambios de VIX y DXY a
 seno/coseno del día de la semana y del mes. Cada feature tiene un test de truncamiento que prueba que solo
 usa datos hasta su propio día.
 
+**Pipeline reproducible (DVC):** `dvc.yaml` declara las etapas `download → validate → featurize → train →
+evaluate → explain`, cada una un comando `brent`, con dependencias, parámetros (claves de
+`configs/default.yaml`) y salidas. `uv run dvc repro` solo re-ejecuta lo que cambió; `dvc.lock` (versionado)
+fija los hashes; datos, dataset y modelos van a la caché de DVC (`uv run dvc push` al remote local
+`../brent-dvc-storage`; GCS/S3 con `dvc[gs]`/`dvc[s3]` y `dvc remote add`). Sin acceso a Kaggle, coloca los
+CSV en `data/raw/` y regístralos con `uv run dvc commit download`.
+
 **Tracking y registro de modelos (MLflow):** `brent train` registra un run padre (protocolo, commit de git,
 SHA-256 de los datos, métricas, predicciones, configuración y gráficos) y un run anidado por candidato
 (hiperparámetros, métricas, AUC por ventana y el pipeline final, serializado con skops). `brent report`

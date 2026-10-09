@@ -1,0 +1,118 @@
+# Reproducible pipeline: `uv run dvc repro` runs only the stages whose inputs changed.
+# Parameters come from configs/default.yaml; `uv run dvc params diff` and `uv run dvc metrics diff`
+# compare them across commits. Stage commands are the `brent` CLI (on PATH inside `uv run`).
+stages:
+  download:
+    cmd: brent data download
+    params:
+      - configs/default.yaml:
+          - data.kaggle_dataset
+          - data.oil_filename
+          - data.events_filename
+    outs:
+      - data/raw
+
+  validate:
+    cmd: brent data validate
+    deps:
+      - data/raw
+      - src/brent_forecast/data
+    params:
+      - configs/default.yaml:
+          - data.expected_start_min
+          - data.expected_start_max
+          - data.expected_end_min
+    metrics:
+      - results/validation.json:
+          cache: false
+
+  featurize:
+    cmd: brent featurize
+    deps:
+      - data/raw
+      - results/validation.json
+      - src/brent_forecast/data
+      - src/brent_forecast/features
+    outs:
+      - data/processed/dataset.parquet
+
+  train:
+    cmd: brent train --features data/processed/dataset.parquet
+    deps:
+      - data/processed/dataset.parquet
+      - src/brent_forecast/pipeline.py
+      - src/brent_forecast/tracking.py
+      - src/brent_forecast/models
+      - src/brent_forecast/features/transformers.py
+      - src/brent_forecast/validation
+      - src/brent_forecast/evaluation/oos.py
+      - src/brent_forecast/evaluation/metrics.py
+      - src/brent_forecast/evaluation/learning_curves.py
+    params:
+      - configs/default.yaml:
+          - seed
+          - split
+          - preprocessing
+          - validation
+          - tuning
+          - models
+          - evaluation.learning_curve_train_sizes
+          - tracking
+    outs:
+      - results/models
+      - results/predictions.csv
+      - results/mlflow_run.json:
+          cache: false
+    metrics:
+      - results/metrics.json:
+          cache: false
+    plots:
+      - results/plots/roc_oos_comparison.png:
+          cache: false
+      - results/plots/oos_auc_per_window.png:
+          cache: false
+
+  evaluate:
+    cmd: brent report
+    deps:
+      - results/predictions.csv
+      - results/metrics.json
+      - results/mlflow_run.json
+      - src/brent_forecast/evaluation/report.py
+      - src/brent_forecast/evaluation/statistics.py
+      - src/brent_forecast/evaluation/backtest.py
+      - src/brent_forecast/tracking.py
+    params:
+      - configs/default.yaml:
+          - seed
+          - evaluation
+          - backtest
+          - tracking
+    outs:
+      - results/report.md:
+          cache: false
+      - results/promotion.json:
+          cache: false
+    metrics:
+      - results/report.json:
+          cache: false
+    plots:
+      - results/plots/reliability_diagram.png:
+          cache: false
+      - results/plots/equity_curves.png:
+          cache: false
+
+  explain:
+    cmd: brent explain
+    deps:
+      - data/raw
+      - results/models
+      - src/brent_forecast/evaluation/explain.py
+    params:
+      - configs/default.yaml:
+          - seed
+          - split
+          - explain
+    outs:
+      - results/explain:
+          cache: false

@@ -41,6 +41,14 @@ uv run brent explain         # permutation importance and SHAP of the trained mo
 uv run brent registry show   # champion / challenger in the MLflow model registry
 ```
 
+Or run every stage with DVC, which skips the stages whose inputs did not change:
+
+```bash
+uv run dvc repro             # download → validate → featurize → train → evaluate → explain
+uv run dvc metrics show      # metrics.json, report.json and validation.json
+uv run dvc push              # cache the data and models in the DVC remote
+```
+
 Outputs are written to `results/` (ignored by git):
 
 | Path | Content |
@@ -51,6 +59,8 @@ Outputs are written to `results/` (ignored by git):
 | `results/run.log` | Full log of the run |
 | `results/plots/` | Out-of-sample ROC, AUC per window, confusion matrices, learning curves, MLP training curves, reliability diagram |
 | `results/report.md`, `report.json` | Statistical report written by `brent report` |
+| `data/processed/dataset.parquet` | Featurized dataset (`brent featurize`, DVC-tracked) |
+| `results/validation.json` | Raw-data validation summary (`brent data validate`) |
 | `mlruns/` | MLflow store (SQLite) and artefacts of every tracked run; open with `uv run mlflow ui --backend-store-uri sqlite:///mlruns/mlflow.db` |
 | `results/explain/` | Permutation and SHAP importances (CSV) and `explanations.md`, written by `brent explain` |
 
@@ -83,12 +93,14 @@ when the upstream dataset legitimately changes; any other mismatch aborts and re
 ```text
 brent [--config PATH] [--log-level LEVEL] COMMAND
 
-  train            Run the full pipeline: load, preprocess, tune, train and evaluate on test
+  featurize        Build the model-ready dataset from the raw files (data/processed/dataset.parquet)
+  train            Run the full pipeline: load, preprocess, tune, train and evaluate on test  [--features]
   report           Build the statistical report (CIs, DeLong, binomial, calibration) of the last run
   explain          Explain the trained models: permutation importance and SHAP (global and local)
   registry show    Print the aliases (champion, challenger) of the registered model
   data download    Download the Kaggle dataset and verify checksums  [--force] [--update-checksums]
   data verify      Verify the SHA-256 checksums of the local data files
+  data validate    Validate the raw files and write results/validation.json
   config show      Print the resolved configuration as JSON
 ```
 
@@ -195,6 +207,33 @@ because its constant is re-estimated at every refit.
   `backtest` section of the config.
 - **Provenance**: the SHA-256 of the input files is stored in `metrics.json`; the report says whether
   they match the recorded Kaggle checksums or are unverified.
+
+### Reproducible pipeline (DVC)
+
+`dvc.yaml` declares six stages, each a `brent` command, with their dependencies (data, source modules),
+parameters (keys of `configs/default.yaml`) and outputs:
+
+| Stage | Command | Outputs |
+|-------|---------|---------|
+| `download` | `brent data download` | `data/raw/` |
+| `validate` | `brent data validate` | `results/validation.json` (metric) |
+| `featurize` | `brent featurize` | `data/processed/dataset.parquet` |
+| `train` | `brent train --features data/processed/dataset.parquet` | `results/models/`, `predictions.csv`, `metrics.json` |
+| `evaluate` | `brent report` | `report.md`, `report.json` (metric), `promotion.json`, reliability and equity plots |
+| `explain` | `brent explain` | `results/explain/` |
+
+- `dvc.lock` (versioned) pins the hash of every input and output. `uv run dvc repro` re-runs only what
+  changed, and `uv run dvc params diff` / `uv run dvc metrics diff` compare commits.
+- Data, the featurized dataset and models live in the DVC cache, never in git. `uv run dvc push` and
+  `uv run dvc pull` sync them with the default remote, a local folder next to the repository
+  (`../brent-dvc-storage`).
+- To use cloud storage, install the matching extra and add a remote:
+  `uv add --dev "dvc[gs]"` then `uv run dvc remote add -d gcs gs://<bucket>/brent`, or `dvc[s3]` with
+  `s3://<bucket>/brent`. Credentials come from the provider's usual environment (never committed).
+- The `download` stage needs Kaggle access. On a machine without it, place the files in `data/raw/`
+  (manual download plus `brent data verify`) and record them with `uv run dvc commit download`.
+- `tests/test_dvc_pipeline.py` checks without DVC that every stage command, parameter and dependency
+  still exists, so a rename fails CI instead of `dvc repro`.
 
 ### Experiment tracking and model registry
 
