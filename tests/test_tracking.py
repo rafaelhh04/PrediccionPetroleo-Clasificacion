@@ -13,6 +13,7 @@ from mlflow import MlflowClient
 from brent_forecast.config import Settings
 from brent_forecast.evaluation.report import generate_report
 from brent_forecast.pipeline import run
+from brent_forecast.predict import predict_next
 from brent_forecast.tracking import (
     CHALLENGER,
     CHAMPION,
@@ -154,6 +155,10 @@ def test_training_and_evaluation_are_tracked_and_the_champion_loads_by_alias(
     expected = result.final_models[decision.champion].predict_proba(features)[:, 1]
     pd.testing.assert_series_equal(pd.Series(proba), pd.Series(expected))
     assert load_model(tracked, CHALLENGER).predict_proba(features).shape == (5, 2)
+
+    # The champion, loaded by alias, predicts the next day from validated features.
+    prediction = predict_next(tracked, champion, live=False)
+    assert 0.0 <= prediction.proba_up <= 1.0
 
     promotion = json.loads((tracked.paths.results_dir / "promotion.json").read_text())
     assert promotion["champion"] == decision.champion

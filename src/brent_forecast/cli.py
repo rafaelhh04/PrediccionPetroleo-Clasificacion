@@ -239,6 +239,71 @@ def data_validate(ctx: typer.Context) -> None:
     )
 
 
+@data_app.command("ingest")
+def data_ingest(
+    ctx: typer.Context,
+    end: Annotated[
+        str | None,
+        typer.Option("--end", help="Last date to fetch (YYYY-MM-DD, default: today)."),
+    ] = None,
+) -> None:
+    """Append recent market data (Yahoo Finance, FRED) to data/live/, validated."""
+    from datetime import date
+
+    from brent_forecast.data.ingest import IngestionError, ingest
+    from brent_forecast.data.schemas import DataValidationError
+
+    settings = _settings(ctx)
+    try:
+        result = ingest(settings, end=date.fromisoformat(end) if end else None)
+    except (IngestionError, DataValidationError, FileNotFoundError, ValueError) as exc:
+        typer.secho(f"Ingestion failed: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"{result.new_rows} new day(s); data up to {result.last_date} in {result.path}")
+
+
+@app.command()
+def predict(
+    ctx: typer.Context,
+    alias: Annotated[
+        str, typer.Option("--alias", help="Registry alias of the model to use.")
+    ] = "champion",
+    live: Annotated[
+        bool, typer.Option("--live/--snapshot", help="Use ingested data when available.")
+    ] = True,
+) -> None:
+    """Predict the direction of the next trading day with the registered model."""
+    from mlflow.exceptions import MlflowException
+
+    from brent_forecast.predict import predict_next, save_prediction
+    from brent_forecast.tracking import load_model, registry_aliases
+
+    settings = _settings(ctx)
+    try:
+        model = load_model(settings, alias)
+    except MlflowException as exc:
+        typer.secho(
+            f"No model with alias {alias!r}: run `brent train` and `brent report` first. ({exc})",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1) from exc
+    try:
+        prediction = predict_next(settings, model, live=live)
+    except (FileNotFoundError, ValueError) as exc:
+        typer.secho(f"Prediction failed: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+    info = registry_aliases(settings).get(alias, {})
+    path = save_prediction(
+        prediction,
+        settings.paths.prediction_file,
+        alias=alias,
+        version=info.get("version", "unknown"),
+        candidate=info.get("candidate", "unknown"),
+    )
+    typer.echo(path.read_text(encoding="utf-8"), nl=False)
+
+
 @data_app.command("verify")
 def data_verify(ctx: typer.Context) -> None:
     """Verify the SHA-256 checksums of the local data files."""

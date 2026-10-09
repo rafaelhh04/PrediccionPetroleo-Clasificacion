@@ -230,6 +230,11 @@ def test_train_end_to_end(fast_settings: Settings, raw_data_dir: Path, tmp_path:
     assert registry.exit_code == 0
     assert set(json.loads(registry.output)) == {"champion", "challenger"}
 
+    prediction = invoke(["--config", str(config), "-l", "WARNING", "predict", "--snapshot"])
+
+    assert prediction.exit_code == 0, prediction.output
+    assert json.loads(prediction.output)["alias"] == "champion"
+
     explain = invoke(["--config", str(config), "--log-level", "WARNING", "explain"])
 
     assert explain.exit_code == 0, explain.output
@@ -320,3 +325,89 @@ def test_train_rejects_a_missing_features_file(settings: Settings, tmp_path: Pat
 
     assert result.exit_code == 1
     assert "brent featurize" in result.output
+
+
+# ── live data and prediction ──────────────────────────────────
+
+
+def test_predict_without_a_registered_model_fails(settings: Settings, tmp_path: Path) -> None:
+    config = _write_config(settings, tmp_path / "config.yaml")
+
+    result = invoke(["--config", str(config), "predict"])
+
+    assert result.exit_code == 1
+    assert "No model with alias 'champion'" in result.output
+
+
+def test_predict_reports_invalid_data(
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _write_config(settings, tmp_path / "config.yaml")
+    monkeypatch.setattr("brent_forecast.tracking.load_model", lambda s, alias: object())
+
+    result = invoke(["--config", str(config), "predict"])  # no data files at all
+
+    assert result.exit_code == 1
+    assert "Prediction failed" in result.output
+
+
+def test_predict_prints_and_saves_the_prediction(
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, raw_data_dir: Path
+) -> None:
+    from brent_forecast.models.baselines import PersistenceClassifier
+    from brent_forecast.pipeline import prepare_data
+
+    dataset, _ = prepare_data(settings)
+    model = PersistenceClassifier().fit(dataset.features, dataset.target)
+    config = _write_config(settings, tmp_path / "config.yaml")
+    monkeypatch.setattr("brent_forecast.tracking.load_model", lambda s, alias: model)
+    monkeypatch.setattr(
+        "brent_forecast.tracking.registry_aliases",
+        lambda s: {"challenger": {"version": "7", "candidate": "persistence"}},
+    )
+
+    result = invoke(
+        ["--config", str(config), "-l", "WARNING", "predict", "--alias", "challenger", "--snapshot"]
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["version"] == "7"
+    assert payload["candidate"] == "persistence"
+    assert json.loads(settings.paths.prediction_file.read_text()) == payload
+
+
+def test_data_ingest(settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from conftest import EVENTS_FILENAME, OIL_FILENAME, make_events_frame, make_oil_frame, write_csv
+    from test_ingest import HOLD_OUT, FakeMarket
+
+    full = make_oil_frame()
+    settings.paths.data_dir.mkdir(parents=True)
+    write_csv(full.iloc[:-HOLD_OUT], settings.paths.data_dir / OIL_FILENAME)
+    write_csv(make_events_frame(full), settings.paths.data_dir / EVENTS_FILENAME)
+    fake = FakeMarket(full)
+    monkeypatch.setattr("brent_forecast.data.ingest.http_get", lambda url, timeout: fake(url))
+    config = _write_config(settings, tmp_path / "config.yaml")
+    last = full["date"].iloc[-1].date().isoformat()
+
+    result = invoke(["--config", str(config), "data", "ingest", "--end", last])
+
+    assert result.exit_code == 0, result.output
+    assert f"{HOLD_OUT} new day(s); data up to {last}" in result.output
+
+
+def test_data_ingest_reports_failures(
+    settings: Settings, tmp_path: Path, raw_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from brent_forecast.data.ingest import IngestionError
+
+    def blocked(url: str, timeout: float) -> str:
+        raise IngestionError("network blocked")
+
+    monkeypatch.setattr("brent_forecast.data.ingest.http_get", blocked)
+    config = _write_config(settings, tmp_path / "config.yaml")
+
+    result = invoke(["--config", str(config), "data", "ingest", "--end", "2026-04-30"])
+
+    assert result.exit_code == 1
+    assert "Ingestion failed: network blocked" in result.output

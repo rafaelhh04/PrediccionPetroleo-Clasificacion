@@ -24,9 +24,9 @@ stages:
       nfiles: 2
     - path: src/brent_forecast/data
       hash: md5
-      md5: 95fb3482036bac3ea8582548f318f17a.dir
-      size: 83835
-      nfiles: 13
+      md5: 98100b6ba04561aecb2c7271a7d6a258.dir
+      size: 109396
+      nfiles: 15
     params:
       configs/default.yaml:
         data.expected_end_min: '2025-01-01'
@@ -51,12 +51,12 @@ stages:
       size: 344
     - path: src/brent_forecast/data
       hash: md5
-      md5: 95fb3482036bac3ea8582548f318f17a.dir
-      size: 83835
-      nfiles: 13
+      md5: 98100b6ba04561aecb2c7271a7d6a258.dir
+      size: 109396
+      nfiles: 15
     - path: src/brent_forecast/features
       hash: md5
-      md5: e1fd25a195a343b4076b041f46b76d8a.dir
+      md5: 50dd388696921bae6a1f62095289013e.dir
       size: 69288
       nfiles: 10
     outs:

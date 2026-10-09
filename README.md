@@ -39,6 +39,8 @@ uv run brent train           # full pipeline: preprocess, tune, train, evaluate 
 uv run brent report          # statistical report of the last run (CIs, tests, calibration)
 uv run brent explain         # permutation importance and SHAP of the trained models
 uv run brent registry show   # champion / challenger in the MLflow model registry
+uv run brent data ingest     # append recent market data (Yahoo Finance, FRED) to data/live/
+uv run brent predict         # P(up) for the next trading day with the champion model
 ```
 
 Or run every stage with DVC, which skips the stages whose inputs did not change:
@@ -62,6 +64,8 @@ Outputs are written to `results/` (ignored by git):
 | `data/processed/dataset.parquet` | Featurized dataset (`brent featurize`, DVC-tracked) |
 | `results/validation.json` | Raw-data validation summary (`brent data validate`) |
 | `mlruns/` | MLflow store (SQLite) and artefacts of every tracked run; open with `uv run mlflow ui --backend-store-uri sqlite:///mlruns/mlflow.db` |
+| `data/live/` | Prices file extended with recent days (`brent data ingest`) |
+| `results/prediction.json` | Latest prediction (`brent predict`), with the alias, version and candidate used |
 | `results/explain/` | Permutation and SHAP importances (CSV) and `explanations.md`, written by `brent explain` |
 
 ### Data
@@ -101,6 +105,8 @@ brent [--config PATH] [--log-level LEVEL] COMMAND
   data download    Download the Kaggle dataset and verify checksums  [--force] [--update-checksums]
   data verify      Verify the SHA-256 checksums of the local data files
   data validate    Validate the raw files and write results/validation.json
+  data ingest      Append recent market data to data/live/ (Yahoo Finance, FRED)  [--end DATE]
+  predict          Predict the next trading day with a registered model  [--alias] [--live/--snapshot]
   config show      Print the resolved configuration as JSON
 ```
 
@@ -243,7 +249,9 @@ parameters (keys of `configs/default.yaml`) and outputs:
 | `featurize` | `brent featurize` | `data/processed/dataset.parquet` |
 | `train` | `brent train --features data/processed/dataset.parquet` | `results/models/`, `predictions.csv`, `metrics.json` |
 | `evaluate` | `brent report` | `report.md`, `report.json` (metric), `promotion.json`, reliability and equity plots |
-| `explain` | `brent explain` | `results/explain/` |
+| `explain` | `brent explain` | `data/live/` | Prices file extended with recent days (`brent data ingest`) |
+| `results/prediction.json` | Latest prediction (`brent predict`), with the alias, version and candidate used |
+| `results/explain/` |
 
 - `dvc.lock` (versioned) pins the hash of every input and output. `uv run dvc repro` re-runs only what
   changed, and `uv run dvc params diff` / `uv run dvc metrics diff` compare commits.
@@ -277,6 +285,36 @@ local SQLite database under `mlruns/`; point `tracking.uri` at a tracking server
   `brent-direction-classifier` with the reason as a tag. `brent report` also writes
   `results/promotion.json`.
 - Inference loads a model by alias: `mlflow.sklearn.load_model("models:/brent-direction-classifier@champion")`.
+
+### Live data and prediction
+
+`brent data ingest` (`data/ingest.py`) appends the days after the last available date to a **copy** of the
+prices file in `data/live/`. The versioned raw snapshot is never modified.
+
+- **Sources** (configured in the `live` section): Yahoo Finance's chart API for Brent (`BZ=F`), WTI (`CL=F`)
+  and the dollar index (`DX-Y.NYB`), and FRED for the VIX (`VIXCLS`).
+- **Trading days:** Brent defines them, and the other series are aligned to Brent.
+- **Derived columns:** returns in %, lags, 7/30-day volatilities and the spread are recomputed for the new
+  rows from `lookback_days` of history. Before appending, `derivation_gap` checks those definitions against
+  the snapshot and warns if they differ.
+- **Validation and reruns:** the extended file must satisfy the same Pandera contract as the snapshot.
+  Re-running is idempotent.
+- **Limitations:** there is no live source for the geopolitical risk index (its last value is carried
+  forward, so `gpr_change` decays to 0) or for events (new days have none). Futures prices also differ
+  slightly from spot quotes.
+- **Testing:** all network access goes through an injectable `fetch_text(url)`, so the tests serve recorded
+  Yahoo/FRED-shaped responses and never touch the network.
+
+`brent predict` loads `models:/brent-direction-classifier@champion` (or `--alias challenger`). It builds the
+features of the most recent day with the training code, but without a label, because that day's outcome is
+still unknown. It validates them with `INFERENCE_SCHEMA` and prints and saves `P(up)`:
+
+```json
+{"as_of": "2026-03-12", "proba_up": 1.0, "direction": "up", "source": "snapshot",
+ "alias": "champion", "version": "7", "candidate": "persistence"}
+```
+
+On the synthetic data the champion is the persistence baseline, so it predicts "up" after an up day.
 
 ### Explainability
 
