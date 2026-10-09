@@ -248,7 +248,7 @@ parameters (keys of `configs/default.yaml`) and outputs:
 | `validate` | `brent data validate` | `results/validation.json` (metric) |
 | `featurize` | `brent featurize` | `data/processed/dataset.parquet` |
 | `train` | `brent train --features data/processed/dataset.parquet` | `results/models/`, `predictions.csv`, `metrics.json` |
-| `evaluate` | `brent report` | `report.md`, `report.json` (metric), `promotion.json`, reliability and equity plots |
+| `evaluate` | `brent report` | `report.md`, `report.json` (metric), reliability and equity plots |
 | `explain` | `brent explain` | `data/live/` | Prices file extended with recent days (`brent data ingest`) |
 | `results/prediction.json` | Latest prediction (`brent predict`), with the alias, version and candidate used |
 | `results/explain/` |
@@ -263,6 +263,12 @@ parameters (keys of `configs/default.yaml`) and outputs:
   `s3://<bucket>/brent`. Credentials come from the provider's usual environment (never committed).
 - The `download` stage needs Kaggle access. On a machine without it, place the files in `data/raw/`
   (manual download plus `brent data verify`) and record them with `uv run dvc commit download`.
+- `dvc.lock` is machine-independent:
+  - `.dvcignore` excludes Python bytecode;
+  - the files that depend on the MLflow store (`mlflow_run.json`, `promotion.json`) are not DVC outputs;
+  - every model is single-threaded, so predictions are bit-for-bit reproducible.
+
+  A clean clone + `dvc pull` + `dvc repro --force` gives the same lock.
 - `tests/test_dvc_pipeline.py` checks without DVC that every stage command, parameter and dependency
   still exists, so a rename fails CI instead of `dvc repro`.
 

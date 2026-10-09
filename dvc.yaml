@@ -1,9 +1,9 @@
 # Reproducible pipeline: `uv run dvc repro` runs only the stages whose inputs changed.
 # Parameters come from configs/default.yaml; `uv run dvc params diff` and `uv run dvc metrics diff`
 # compare them across commits. Stage commands are the `brent` CLI (on PATH inside `uv run`).
-# results/mlflow_run.json (MLflow run ids, new on every training run) links `train` and `evaluate`
-# but is deliberately not a DVC output: dvc.lock must not change when the same data and code are
-# reproduced on another machine.
+# results/mlflow_run.json (MLflow run ids) and results/promotion.json (registry versions) depend on
+# the MLflow store, not on the data and code, so they are deliberately not DVC outputs: dvc.lock must
+# not change when the same data and code are reproduced on another machine.
 stages:
   download:
     cmd: brent data download
@@ -90,8 +90,6 @@ stages:
           - tracking
     outs:
       - results/report.md:
-          cache: false
-      - results/promotion.json:
           cache: false
     metrics:
       - results/report.json:
