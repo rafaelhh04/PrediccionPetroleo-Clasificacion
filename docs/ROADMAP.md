@@ -178,7 +178,7 @@ Si el tiempo es limitado, el **mínimo viable de portfolio** es: Fases 1 + 2 + 3
 | 1 Fundamentos | ✅ (PRs abiertos, encadenados) | `chore/gitignore-cleanup`, `chore/project-packaging`, `feat/data-download`, `feat/config-management`, `refactor/structured-logging`, `chore/dev-tooling`, `docs/remove-stale-references` | uv + PEP 621 + src layout; CLI Typer; pydantic-settings + YAML + `BRENT_*`; logging estándar; ruff + mypy estricto + pre-commit. Ver notas de cierre ↓ |
 | 2 Calidad | ✅ | `test/unit-test-suite` (#9), `test/leakage-guards` (#10), `test/mlp-gradient-check` (#11), `ci/github-actions` (#12), `chore/repo-governance` | 130 tests, 98 % cobertura de ramas, gradient check ≤ 2.5e-9, CI 3.12/3.13 verde. Protección de `main` versionada como ruleset (requiere importarla). Ver notas de cierre ↓ |
 | 3 Rigor ML | ✅ | `fix/label-last-row` (#15), `refactor/sklearn-pipelines` (#16), `feat/walk-forward-validation` (#17), `feat/baselines` (#18), `feat/statistical-evaluation` (#19), `feat/financial-backtest` (#20), `feat/feature-engineering-v2` (#21), `feat/gradient-boosting-optuna` (#22), `feat/model-explainability` (#23), `docs/model-card` (#24) | Pipelines sklearn + walk-forward purgado (10 ventanas OOS) + 4 baselines + `brent report` (IC block bootstrap, DeLong+Holm, binomial, Brier, backtest) + LightGBM/Optuna + `brent explain` (SHAP, permutation). Conclusión: sin señal. 422 tests, 99 % cobertura. Ver notas de cierre ↓ |
-| 4 MLOps | ✅ | `feat/experiment-tracking` (#25), `feat/data-versioning` (#26), `feat/data-validation` (#27), `feat/data-ingestion-live` (#28), `docs/phase-4-closing` | MLflow (runs anidados, artefactos, skops, registry con alias `champion`/`challenger` y regla de promoción testeada) + DVC (6 etapas, `dvc.lock`, remote local) + Pandera (5 contratos) + ingesta Yahoo/FRED + `brent predict`. Campeón = baseline de persistencia (ningún modelo la supera). 516 tests, 98.5 % cobertura. Ver notas de cierre ↓ |
+| 4 MLOps | ✅ | `feat/experiment-tracking` (#25), `feat/data-versioning` (#26), `feat/data-validation` (#27), `feat/data-ingestion-live` (#28), `fix/dvc-reproducible-lock` (#29), `docs/phase-4-closing` (#30) | MLflow (runs anidados, artefactos, skops, registry con alias `champion`/`challenger` y regla de promoción testeada) + DVC (6 etapas, `dvc.lock`, remote local) + Pandera (5 contratos) + ingesta Yahoo/FRED + `brent predict`. Campeón = baseline de persistencia (ningún modelo la supera). 516 tests, 98.5 % cobertura. Ver notas de cierre ↓ |
 | 5 | ⏳ pendiente | | |
 | 6 | ⏳ pendiente | | |
 | 7 | ⏳ pendiente | | |
@@ -256,6 +256,12 @@ dataset sintético de la Fase 1 produce un `metrics.json` idéntico byte a byte 
 - Los overrides de configuración se fusionan en profundidad (*deep merge*): sobrescribir un `grid` desde
   entorno o kwargs conserva las claves no mencionadas. Documentado en `tests/conftest.py`.
 
+- Reproducibilidad entre máquinas (#29): la primera verificación en clon limpio dio modelos y métricas
+  idénticos pero un `dvc.lock` distinto. Causas y arreglos: `__pycache__` dentro de los directorios de
+  código que son dependencias (→ `.dvcignore`); `mlflow_run.json` y `promotion.json` dependen del store de
+  MLflow (→ ya no son salidas DVC); el random forest con `n_jobs=-1` suma probabilidades en orden no
+  determinista (diferencias de 1 ulp → bosque monohilo y búsqueda en paralelo, mismo tiempo).
+
 **Lecciones de proceso.** `pre-commit run --all-files` solo ve ficheros versionados: hacer `git add` antes
 de ejecutar los hooks (documentado en `CONTRIBUTING.md`). Los tests de CLI normalizan la salida (ANSI),
 porque CI fuerza colores.
@@ -319,6 +325,12 @@ sin `type: ignore` en `src/`, gradient check del MLP < 1e-6 y `check_estimator` 
   etapas (`featurize`, `train`, `evaluate`).
 - Dependabot #14 (bump de `uv_build`) sigue abierto para revisión del usuario.
 
+- Reproducibilidad entre máquinas (#29): la primera verificación en clon limpio dio modelos y métricas
+  idénticos pero un `dvc.lock` distinto. Causas y arreglos: `__pycache__` dentro de los directorios de
+  código que son dependencias (→ `.dvcignore`); `mlflow_run.json` y `promotion.json` dependen del store de
+  MLflow (→ ya no son salidas DVC); el random forest con `n_jobs=-1` suma probabilidades en orden no
+  determinista (diferencias de 1 ulp → bosque monohilo y búsqueda en paralelo, mismo tiempo).
+
 **Lecciones de proceso.** El servidor de PRs añade un pie automático a la descripción: se crea el PR con un
 cuerpo mínimo y se sustituye con `update`. Para el merge con `expectedHeadSha` hace falta el SHA de 40
 caracteres. Los indicadores con ventanas largas (momentum 63) amplían el *warm-up*: ajustar los tests que
@@ -337,8 +349,9 @@ campeón es el **baseline de persistencia** y la regresión logística queda com
 
 **Verificación del DoD.**
 - Clon limpio + `dvc pull` del remote local + `dvc repro --force --downstream validate`: las cinco etapas
-  posteriores a `download` se reproducen y `dvc status` queda limpio (salida en el PR de cierre).
-  `download` no puede ejecutarse en el entorno de desarrollo (la política de red bloquea Kaggle).
+  posteriores a `download` se reproducen (12 min), `dvc status` queda limpio y **`dvc.lock` sale idéntico
+  byte a byte** (#29). `download` no puede ejecutarse en el entorno de desarrollo (la política de red
+  bloquea Kaggle).
 - MLflow: un run padre por entrenamiento (etapas `train` → `evaluate`) con 9 runs hijos; versiones del
   modelo registradas con alias y la razón de la promoción como tag.
 - Campeón por alias → predicción validada: test e2e (`test_tracking.py`) y `brent predict` en CLI.
@@ -378,6 +391,12 @@ campeón es el **baseline de persistencia** y la regresión logística queda com
 - El registro crea versiones nuevas en cada `brent report` (también si el campeón no cambia).
 - Pendientes del usuario: secret `CODECOV_TOKEN`, importar `.github/rulesets/protect-main.json`, Dependabot
   #14, y permitir los dominios de Kaggle/Yahoo/FRED en la red del entorno si se quieren datos reales aquí.
+
+- Reproducibilidad entre máquinas (#29): la primera verificación en clon limpio dio modelos y métricas
+  idénticos pero un `dvc.lock` distinto. Causas y arreglos: `__pycache__` dentro de los directorios de
+  código que son dependencias (→ `.dvcignore`); `mlflow_run.json` y `promotion.json` dependen del store de
+  MLflow (→ ya no son salidas DVC); el random forest con `n_jobs=-1` suma probabilidades en orden no
+  determinista (diferencias de 1 ulp → bosque monohilo y búsqueda en paralelo, mismo tiempo).
 
 **Lecciones de proceso.** Los comandos que imprimen JSON se prueban con `--log-level WARNING` (CliRunner
 mezcla stderr). `dvc.lock` se excluye de los hooks de espacios en blanco (lo genera DVC). Cambiar un módulo
