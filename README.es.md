@@ -106,6 +106,16 @@ Bollinger(20, 2) %B y anchura, momentum de 21 y 63 días, cambios de VIX y DXY a
 seno/coseno del día de la semana y del mes. Cada feature tiene un test de truncamiento que prueba que solo
 usa datos hasta su propio día.
 
+**Contratos de datos (Pandera):** cada frontera de datos tiene un esquema (`data/schemas.py`):
+- CSV de precios: columnas obligatorias, tipos, fechas únicas y rangos plausibles (Brent en (0, 1000) USD,
+  retornos en (−100, 100) %, VIX y DXY acotados; el WTI no se acota porque cotizó a −37 USD en 2020).
+- Eventos: fechas únicas y severidad entre 0 y 10.
+- Frame fusionado: fechas crecientes, una fila por día y rango de fechas configurado.
+- Dataset de features: etiqueta 0/1 y features finitas y sin nulos.
+- Filas de inferencia: features finitas y sin nulos.
+
+La validación es *lazy*: un único `DataValidationError` lista todos los fallos.
+
 **Pipeline reproducible (DVC):** `dvc.yaml` declara las etapas `download → validate → featurize → train →
 evaluate → explain`, cada una un comando `brent`, con dependencias, parámetros (claves de
 `configs/default.yaml`) y salidas. `uv run dvc repro` solo re-ejecuta lo que cambió; `dvc.lock` (versionado)

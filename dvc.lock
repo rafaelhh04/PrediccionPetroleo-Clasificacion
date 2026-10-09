@@ -24,9 +24,9 @@ stages:
       nfiles: 2
     - path: src/brent_forecast/data
       hash: md5
-      md5: 7523862273692b2cd9df1b6e0e29d2c0.dir
-      size: 69678
-      nfiles: 11
+      md5: 95fb3482036bac3ea8582548f318f17a.dir
+      size: 83835
+      nfiles: 13
     params:
       configs/default.yaml:
         data.expected_end_min: '2025-01-01'
@@ -51,19 +51,19 @@ stages:
       size: 344
     - path: src/brent_forecast/data
       hash: md5
-      md5: 7523862273692b2cd9df1b6e0e29d2c0.dir
-      size: 69678
-      nfiles: 11
+      md5: 95fb3482036bac3ea8582548f318f17a.dir
+      size: 83835
+      nfiles: 13
     - path: src/brent_forecast/features
       hash: md5
-      md5: 140aea043f02ac4a8808365df2553775.dir
-      size: 69060
+      md5: e1fd25a195a343b4076b041f46b76d8a.dir
+      size: 69288
       nfiles: 10
     outs:
     - path: data/processed/dataset.parquet
       hash: md5
-      md5: 17e56acff31e0cb813c48c599a7547cf
-      size: 907852
+      md5: bfbdc37e5857863bea2875f7fe45724e
+      size: 907848
   train:
     cmd: brent train --features data/processed/dataset.parquet
     deps:
