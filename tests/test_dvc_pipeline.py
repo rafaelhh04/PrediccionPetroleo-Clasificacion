@@ -85,3 +85,15 @@ def test_dates_in_the_config_are_strings_for_dvc() -> None:
         return [node]
 
     assert all(isinstance(v, str | int | float | bool) or v is None for v in scalars(config))
+
+
+def test_the_lock_does_not_depend_on_the_machine() -> None:
+    """Bytecode and MLflow ids/versions would make dvc.lock differ between identical runs."""
+    ignored = (REPO_ROOT / ".dvcignore").read_text().splitlines()
+    outputs = [p for stage in STAGES.values() for p in _outputs(stage)]
+    deps = [d for stage in STAGES.values() for d in stage.get("deps", [])]
+
+    assert "__pycache__/" in ignored
+    assert "*.pyc" in ignored
+    assert "results/mlflow_run.json" not in outputs + deps
+    assert "results/promotion.json" not in outputs + deps
