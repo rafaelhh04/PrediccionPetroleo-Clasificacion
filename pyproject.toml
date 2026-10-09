@@ -22,6 +22,7 @@ dependencies = [
     "numpy>=2.2",
     "optuna>=4.1",
     "pandas>=2.2",
+    "pyarrow>=18",
     "pydantic-settings>=2.8",
     "pyyaml>=6.0",
     "scikit-learn>=1.6",
@@ -37,6 +38,7 @@ brent = "brent_forecast.cli:app"
 [dependency-groups]
 dev = [
     "codespell>=2.4",
+    "dvc>=3.50",
     "hypothesis>=6.120",
     "mypy>=1.15",
     "pandas-stubs>=2.2",
