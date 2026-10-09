@@ -230,7 +230,7 @@ def test_train_end_to_end(fast_settings: Settings, raw_data_dir: Path, tmp_path:
     assert registry.exit_code == 0
     assert set(json.loads(registry.output)) == {"champion", "challenger"}
 
-    prediction = invoke(["--config", str(config), "predict", "--snapshot"])
+    prediction = invoke(["--config", str(config), "-l", "WARNING", "predict", "--snapshot"])
 
     assert prediction.exit_code == 0, prediction.output
     assert json.loads(prediction.output)["alias"] == "champion"
