@@ -94,8 +94,8 @@ stages:
       nfiles: 7
     - path: src/brent_forecast/pipeline.py
       hash: md5
-      md5: 930a379d5fa4da8fd4b79b356e6a5378
-      size: 11842
+      md5: aa3d79b30f569d02de35ed8e2271457c
+      size: 11755
     - path: src/brent_forecast/tracking.py
       hash: md5
       md5: f4f189242f19a5246c686dc0849892fb
@@ -144,7 +144,7 @@ stages:
               n_estimators: 200
               max_depth: 10
               min_samples_leaf: 20
-              n_jobs: -1
+              n_jobs: 1
             grid:
               n_estimators:
               - 100
@@ -261,7 +261,7 @@ stages:
       size: 22665
     - path: results/models
       hash: md5
-      md5: 1178882e1be61886284cf7f26957b57a.dir
+      md5: 35ad2597b15067d5ef705800dc768a13.dir
       size: 7718456
       nfiles: 9
     - path: results/plots/oos_auc_per_window.png
@@ -274,8 +274,8 @@ stages:
       size: 118990
     - path: results/predictions.csv
       hash: md5
-      md5: 8e720f1bec74f1a6e1c8c5ad95ecd3d2
-      size: 95325
+      md5: b863e24ad9256b9fb921ae1cba4593de
+      size: 95314
   evaluate:
     cmd: brent report
     deps:
@@ -285,8 +285,8 @@ stages:
       size: 22665
     - path: results/predictions.csv
       hash: md5
-      md5: 8e720f1bec74f1a6e1c8c5ad95ecd3d2
-      size: 95325
+      md5: b863e24ad9256b9fb921ae1cba4593de
+      size: 95314
     - path: src/brent_forecast/evaluation/backtest.py
       hash: md5
       md5: c9a547e47ccdbae822567f7ec5377419
@@ -338,10 +338,6 @@ stages:
       hash: md5
       md5: ff35f2020c693c36135e5ae8c169fa2e
       size: 71598
-    - path: results/promotion.json
-      hash: md5
-      md5: 288e7a980e94ed06cafa796441901249
-      size: 295
     - path: results/report.json
       hash: md5
       md5: e72eab8e4507146c4e933d420fcff6b8
@@ -360,7 +356,7 @@ stages:
       nfiles: 2
     - path: results/models
       hash: md5
-      md5: 1178882e1be61886284cf7f26957b57a.dir
+      md5: 35ad2597b15067d5ef705800dc768a13.dir
       size: 7718456
       nfiles: 9
     - path: src/brent_forecast/evaluation/explain.py
