@@ -15,6 +15,7 @@ import pandas as pd
 from brent_forecast.config import Settings
 from brent_forecast.data.download import load_checksums, sha256sum
 from brent_forecast.data.load import DateBounds, load_oil_data
+from brent_forecast.data.schemas import FEATURES_SCHEMA, validate
 from brent_forecast.features.preprocessing import Dataset, build_dataset
 
 logger = logging.getLogger(__name__)
@@ -79,10 +80,12 @@ def read_features(path: Path) -> Dataset:
     ------
     ValueError
         If the file lacks the date, label or next-return columns.
+    DataValidationError
+        If it breaks the feature schema (e.g. a tampered or stale file).
     """
     frame = pd.read_parquet(path)
     missing = [c for c in META_COLUMNS if c not in frame.columns]
     if missing:
         raise ValueError(f"{path} is not a featurized dataset: missing {missing}")
     feature_cols = [str(c) for c in frame.columns if c not in META_COLUMNS]
-    return Dataset(frame=frame, feature_cols=feature_cols)
+    return Dataset(frame=validate(frame, FEATURES_SCHEMA), feature_cols=feature_cols)
