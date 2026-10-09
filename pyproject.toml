@@ -22,6 +22,7 @@ dependencies = [
     "numpy>=2.2",
     "optuna>=4.1",
     "pandas>=2.2",
+    "pandera>=0.22",
     "pyarrow>=18",
     "pydantic-settings>=2.8",
     "pyyaml>=6.0",
