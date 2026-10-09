@@ -56,9 +56,6 @@ from brent_forecast.validation.walk_forward import PurgedWalkForwardSplit, walk_
 
 logger = logging.getLogger(__name__)
 
-# The forest parallelises internally; nesting a parallel search would oversubscribe.
-_SEARCH_N_JOBS = {"random_forest": 1}
-
 
 def prepare_data(settings: Settings, features_file: Path | None = None) -> tuple[Dataset, Split]:
     """Build (or read) the dataset and split it at ``split.test_start``.
@@ -136,7 +133,7 @@ def run(settings: Settings, features_file: Path | None = None) -> TrainingResult
                 y_dev,
                 cv=tuning_cv,
                 scoring=val.scoring,
-                n_jobs=_SEARCH_N_JOBS.get(key, -1),
+                n_jobs=-1,  # every model is single-threaded, so the search parallelises
                 model_name=name,
             )
         best_params[key] = {**fixed, **model_params(best["params"])}
