@@ -46,6 +46,9 @@ Format: Mitchell et al., *Model Cards for Model Reporting* (FAT* 2019).
   and DXY levels with their 1- and 5-day changes, geopolitical risk change and event flags, and the
   weekday and month as sine/cosine. Each feature has a truncation test proving it only uses data up to
   its own day.
+- **Data contracts**: Pandera schemas validate the raw files, the merged frame, the feature dataset
+  and every inference row (types, ranges, unique increasing dates, finite features). Invalid data
+  stops the pipeline with a message listing every failed check.
 - **Split**:
   - Development period: before 2024-01-01, used for tuning.
   - Out-of-sample period: 2024-01-01 → 2026-03-11 (573 days in the synthetic run), evaluated by purged

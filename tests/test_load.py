@@ -11,25 +11,29 @@ from brent_forecast.data.load import (
     load_oil_data,
     load_oil_prices,
 )
-from conftest import DATE_BOUNDS, EVENTS_FILENAME, OIL_FILENAME, write_csv
+from brent_forecast.data.schemas import DataValidationError
+from conftest import DATE_BOUNDS, EVENTS_FILENAME, OIL_FILENAME, make_oil_frame, write_csv
 
 
 def test_load_oil_prices_parses_dates_and_strips_headers(tmp_path: Path) -> None:
+    oil = make_oil_frame().head(3)
     path = tmp_path / "oil.csv"
-    path.write_text(" date ,brent_price\n2010-01-04,80.1\n2010-01-05,81.0\n")
+    oil.rename(columns={"date": " date "}).to_csv(path, index=False)
 
     df = load_oil_prices(path)
 
-    assert list(df.columns) == ["date", "brent_price"]
+    assert list(df.columns) == list(oil.columns)
     assert pd.api.types.is_datetime64_any_dtype(df["date"])
-    assert len(df) == 2
+    assert len(df) == 3
 
 
 def test_load_oil_prices_drops_unparsable_dates(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
+    oil = make_oil_frame().head(3).astype({"date": str})
+    oil.loc[1, "date"] = "not-a-date"
     path = tmp_path / "oil.csv"
-    path.write_text("date,brent_price\n2010-01-04,80.1\nnot-a-date,81.0\n2010-01-06,82.0\n")
+    oil.to_csv(path, index=False)
 
     df = load_oil_prices(path)
 
@@ -103,7 +107,7 @@ def test_load_oil_data_rejects_duplicated_event_dates(
 ) -> None:
     events = pd.concat([events_frame, events_frame.iloc[[0]]], ignore_index=True)
 
-    with pytest.raises(ValueError, match="Validation failed"):
+    with pytest.raises(DataValidationError, match="geopolitical events failed validation"):
         load_oil_data(
             write_csv(oil_frame, tmp_path / OIL_FILENAME),
             write_csv(events, tmp_path / EVENTS_FILENAME),
@@ -129,70 +133,76 @@ def test_validate_accepts_a_clean_frame(caplog: pytest.LogCaptureFixture) -> Non
 
     _validate(_valid_frame(), expected_rows=3, bounds=DATE_BOUNDS)
 
-    assert "Validation passed" in caplog.text
+    assert "Validation passed: 3 rows" in caplog.text
 
 
 def test_validate_rejects_duplicated_dates(caplog: pytest.LogCaptureFixture) -> None:
     df = _valid_frame()
     df.loc[1, "date"] = df.loc[0, "date"]
 
-    with pytest.raises(ValueError, match="1 error"):
+    with pytest.raises(DataValidationError, match="column 'date' failed field_uniqueness"):
         _validate(df, expected_rows=3, bounds=DATE_BOUNDS)
-    assert "DUPLICATES" in caplog.text
+    assert "merged dataset failed validation" in caplog.text
 
 
-def test_validate_rejects_row_count_mismatch(caplog: pytest.LogCaptureFixture) -> None:
-    with pytest.raises(ValueError):
+def test_validate_rejects_unsorted_dates() -> None:
+    df = _valid_frame().iloc[[1, 0, 2]].reset_index(drop=True)
+
+    with pytest.raises(DataValidationError, match="sorted in increasing order"):
+        _validate(df, expected_rows=3, bounds=DATE_BOUNDS)
+
+
+def test_validate_rejects_row_count_mismatch() -> None:
+    with pytest.raises(DataValidationError, match="must keep 4 rows"):
         _validate(_valid_frame(), expected_rows=4, bounds=DATE_BOUNDS)
-    assert "ROWS: expected 4, got 3" in caplog.text
 
 
 @pytest.mark.parametrize("column", ["event_severity", "event_type"])
-def test_validate_rejects_null_events(column: str, caplog: pytest.LogCaptureFixture) -> None:
+def test_validate_rejects_null_events(column: str) -> None:
     df = _valid_frame()
     df[column] = df[column].astype(object)
     df.loc[0, column] = None
 
-    with pytest.raises(ValueError):
+    with pytest.raises(DataValidationError, match=f"column '{column}' failed not_nullable"):
         _validate(df, expected_rows=3, bounds=DATE_BOUNDS)
-    assert f"NULLS in '{column}'" in caplog.text
 
 
 @pytest.mark.parametrize(
     ("dates", "message"),
     [
-        (["2005-01-03", "2018-06-01", "2026-03-12"], "unexpected minimum date"),
-        (["2012-01-03", "2018-06-01", "2026-03-12"], "unexpected minimum date"),
-        (["2010-02-17", "2018-06-01", "2023-12-29"], "unexpected maximum date"),
+        (["2005-01-03", "2018-06-01", "2026-03-12"], "first date must be between"),
+        (["2012-01-03", "2018-06-01", "2026-03-12"], "first date must be between"),
+        (["2010-02-17", "2018-06-01", "2023-12-29"], "last date must be on or after"),
     ],
 )
-def test_validate_rejects_unexpected_date_range(
-    dates: list[str], message: str, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_validate_rejects_unexpected_date_range(dates: list[str], message: str) -> None:
     df = _valid_frame()
     df["date"] = pd.to_datetime(dates)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(DataValidationError, match=message):
         _validate(df, expected_rows=3, bounds=DATE_BOUNDS)
-    assert message in caplog.text
 
 
 def test_validate_reports_every_error_at_once() -> None:
     df = _valid_frame()
     df.loc[1, "date"] = df.loc[0, "date"]
 
-    with pytest.raises(ValueError, match="2 error"):
+    with pytest.raises(DataValidationError) as info:
         _validate(df, expected_rows=5, bounds=DATE_BOUNDS)
 
+    assert "field_uniqueness" in str(info.value)
+    assert "must keep 5 rows" in str(info.value)
 
-def test_validate_uses_the_configured_bounds(caplog: pytest.LogCaptureFixture) -> None:
+
+def test_validate_uses_the_configured_bounds() -> None:
     from datetime import date
 
     from brent_forecast.data.load import DateBounds
 
     strict = DateBounds(date(2010, 3, 1), date(2010, 12, 31), date(2027, 1, 1))
 
-    with pytest.raises(ValueError, match="2 error"):
+    with pytest.raises(DataValidationError) as info:
         _validate(_valid_frame(), expected_rows=3, bounds=strict)
-    assert "expected between 2010-03-01 and 2010-12-31" in caplog.text
-    assert "expected on or after 2027-01-01" in caplog.text
+
+    assert "between 2010-03-01 and 2010-12-31" in str(info.value)
+    assert "on or after 2027-01-01" in str(info.value)

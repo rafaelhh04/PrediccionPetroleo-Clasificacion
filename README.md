@@ -208,6 +208,29 @@ because its constant is re-estimated at every refit.
 - **Provenance**: the SHA-256 of the input files is stored in `metrics.json`; the report says whether
   they match the recorded Kaggle checksums or are unverified.
 
+### Data contracts (Pandera)
+
+Every data boundary has a Pandera schema (`data/schemas.py`), validated lazily so that one error message
+lists every failed check:
+
+| Schema | Where | Main checks |
+|--------|-------|-------------|
+| `OIL_SCHEMA` | prices CSV, on load | required columns, numeric coercion, unique dates, Brent in (0, 1000) USD, Brent return in (−100, 100) %, VIX in (0, 200], DXY in [50, 200], non-negative volatility and GPR |
+| `EVENTS_SCHEMA` | events CSV, on load | unique dates (a duplicate would duplicate rows in the join), severity 0–10 |
+| `merged_schema` | after the join | dates unique and increasing, one row per oil day, events filled, date range from `data.expected_*` |
+| `FEATURES_SCHEMA` | `build_dataset`, `read_features` | label in {0, 1}, every feature numeric, non-null and finite, dates increasing |
+| `INFERENCE_SCHEMA` | rows sent to a model | every feature numeric, non-null and finite |
+
+The bounds are loose plausibility checks: they catch unit errors, wrong files and corrupted values, not
+market moves. WTI is not range-checked because it settled at −37 USD on 2020-04-20. Invalid data stops the
+run with `DataValidationError`, for example:
+
+```text
+oil prices failed validation:
+  - column 'brent_price' failed in_range(0.0, 1000.0) for 2 row(s), e.g. -1.0, -2.0
+  - missing required column(s): 'gpr_index'
+```
+
 ### Reproducible pipeline (DVC)
 
 `dvc.yaml` declares six stages, each a `brent` command, with their dependencies (data, source modules),

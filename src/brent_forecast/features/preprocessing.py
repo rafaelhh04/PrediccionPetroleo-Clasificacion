@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 
 from brent_forecast.config import SplitSettings
+from brent_forecast.data.schemas import FEATURES_SCHEMA, validate
 from brent_forecast.features import technical
 
 logger = logging.getLogger(__name__)
@@ -262,7 +263,7 @@ def build_dataset(df: pd.DataFrame) -> Dataset:
     df, feature_cols = engineer_features(df)
     df = handle_nulls(df, feature_cols)
     frame = df[["date", "label", "next_return", *feature_cols]].reset_index(drop=True)
-    return Dataset(frame=frame, feature_cols=feature_cols)
+    return Dataset(frame=validate(frame, FEATURES_SCHEMA), feature_cols=feature_cols)
 
 
 class Split(NamedTuple):
