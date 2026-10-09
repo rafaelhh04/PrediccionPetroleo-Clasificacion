@@ -207,11 +207,14 @@ def test_data_download_failure_exits_with_error(
 @pytest.mark.slow
 @pytest.mark.filterwarnings("ignore::FutureWarning")
 def test_train_end_to_end(fast_settings: Settings, raw_data_dir: Path, tmp_path: Path) -> None:
-    config = _write_config(fast_settings, tmp_path / "fast.yaml")
+    tracking = fast_settings.tracking.model_copy(update={"enabled": True})
+    settings = fast_settings.model_copy(update={"tracking": tracking})
+    config = _write_config(settings, tmp_path / "fast.yaml")
 
     result = invoke(["--config", str(config), "--log-level", "WARNING", "train"])
 
     assert result.exit_code == 0, result.output
+    assert "MLflow run" in result.output
     assert fast_settings.paths.metrics_file.is_file()
     assert fast_settings.paths.log_file.is_file()
     assert f"Log written to {fast_settings.paths.log_file}" in result.output
@@ -220,6 +223,12 @@ def test_train_end_to_end(fast_settings: Settings, raw_data_dir: Path, tmp_path:
 
     assert report.exit_code == 0, report.output
     assert f"Report written to {fast_settings.paths.report_file}" in report.output
+    assert "champion = " in report.output
+
+    registry = invoke(["--config", str(config), "registry", "show"])
+
+    assert registry.exit_code == 0
+    assert set(json.loads(registry.output)) == {"champion", "challenger"}
 
     explain = invoke(["--config", str(config), "--log-level", "WARNING", "explain"])
 
@@ -234,6 +243,42 @@ def test_explain_without_a_training_run_fails(settings: Settings, tmp_path: Path
 
     assert result.exit_code == 1
     assert "run `brent train`" in result.output
+
+
+def test_registry_show_before_any_promotion(settings: Settings, tmp_path: Path) -> None:
+    config = _write_config(settings, tmp_path / "config.yaml")
+
+    result = invoke(["--config", str(config), "registry", "show"])
+
+    assert result.exit_code == 0
+    assert "No model registered" in result.output
+
+
+def test_registry_show_lists_aliases(
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _write_config(settings, tmp_path / "config.yaml")
+    aliases = {"champion": {"version": "3", "candidate": "persistence"}}
+    monkeypatch.setattr("brent_forecast.tracking.registry_aliases", lambda s: aliases)
+
+    result = invoke(["--config", str(config), "registry", "show"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.output) == aliases
+
+
+def test_report_warns_when_the_training_run_was_not_tracked(
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tracking = settings.tracking.model_copy(update={"enabled": True})
+    config = _write_config(settings.model_copy(update={"tracking": tracking}), tmp_path / "c.yaml")
+    report = settings.paths.report_file
+    monkeypatch.setattr("brent_forecast.evaluation.report.generate_report", lambda s: report)
+
+    result = invoke(["--config", str(config), "report"])
+
+    assert result.exit_code == 0
+    assert "tracking enabled" in result.output
 
 
 def test_report_without_a_training_run_fails(settings: Settings, tmp_path: Path) -> None:

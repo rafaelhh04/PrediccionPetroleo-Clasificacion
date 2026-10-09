@@ -19,8 +19,10 @@ app = typer.Typer(
 )
 data_app = typer.Typer(help="Acquire and verify the raw datasets.", no_args_is_help=True)
 config_app = typer.Typer(help="Inspect the resolved configuration.", no_args_is_help=True)
+registry_app = typer.Typer(help="Inspect the MLflow model registry.", no_args_is_help=True)
 app.add_typer(data_app, name="data")
 app.add_typer(config_app, name="config")
+app.add_typer(registry_app, name="registry")
 
 
 @dataclass(frozen=True)
@@ -86,7 +88,12 @@ def train(ctx: typer.Context) -> None:
 
     settings = _settings(ctx)
     setup_logging(_state(ctx).log_level, log_file=settings.paths.log_file)
-    run(settings)
+    result = run(settings)
+    if settings.tracking.enabled:
+        from brent_forecast.tracking import log_training
+
+        run_id = log_training(settings, result)
+        typer.echo(f"MLflow run {run_id} ({settings.tracking.uri})")
     typer.echo(f"Log written to {settings.paths.log_file}")
 
 
@@ -102,6 +109,16 @@ def report(ctx: typer.Context) -> None:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(f"Report written to {path}")
+    if settings.tracking.enabled:
+        from brent_forecast.tracking import log_evaluation
+
+        try:
+            decision = log_evaluation(settings)
+        except FileNotFoundError as exc:
+            typer.secho(str(exc), fg=typer.colors.YELLOW, err=True)
+            return
+        typer.echo(f"champion = {decision.champion}, challenger = {decision.challenger}")
+        typer.echo(decision.reason)
 
 
 @app.command()
@@ -116,6 +133,19 @@ def explain(ctx: typer.Context) -> None:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(f"Explanations written to {path}")
+
+
+@registry_app.command("show")
+def registry_show(ctx: typer.Context) -> None:
+    """Print the aliases of the registered model with their versions and tags."""
+    from brent_forecast.tracking import registry_aliases
+
+    settings = _settings(ctx)
+    aliases = registry_aliases(settings)
+    if not aliases:
+        typer.echo(f"No model registered as {settings.tracking.registered_model!r} yet.")
+        return
+    typer.echo(json.dumps(aliases, indent=2))
 
 
 @config_app.command("show")
