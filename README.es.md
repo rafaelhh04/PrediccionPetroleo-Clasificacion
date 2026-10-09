@@ -131,6 +131,16 @@ baseline con significancia; si no, el `champion` es el mejor baseline y el model
 El modelo se carga por alias (`models:/brent-direction-classifier@champion`); `brent registry show` muestra
 los alias.
 
+**Datos en vivo y predicción:**
+- `brent data ingest` añade los días posteriores al último disponible a una copia del fichero de precios en
+  `data/live/`, sin tocar el snapshot versionado. Usa Yahoo Finance para Brent `BZ=F`, WTI `CL=F` y DXY
+  `DX-Y.NYB`, y FRED para el VIX `VIXCLS`.
+- Recalcula las columnas derivadas y valida el resultado con el mismo contrato de Pandera.
+- El GPR se arrastra con el último valor y los eventos nuevos son "none", porque no hay fuente en vivo.
+- `brent predict` carga `@champion`, construye las features del último día (sin etiqueta), las valida y
+  devuelve P(sube).
+- Los tests usan respuestas grabadas y nunca acceden a la red.
+
 **Explicabilidad** (`brent explain`): cada modelo se reentrena en el periodo de desarrollo y se explica en
 el periodo fuera de muestra, con *permutation importance* (caída de AUC al barajar cada feature) y SHAP
 (TreeSHAP para LightGBM/RF, forma cerrada para la logística y explainer por permutación para SVM/MLP). Se

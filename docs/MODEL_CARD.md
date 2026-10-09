@@ -124,6 +124,11 @@ above zero). Otherwise the best baseline is the `champion` and the best model th
 synthetic data no model qualifies, so the champion is a **naive baseline**. That is the honest choice: a
 model that cannot beat a naive rule only adds risk.
 
+`brent predict` serves the `champion` alias. It predicts from the raw snapshot or from data appended by
+`brent data ingest` (Yahoo Finance and FRED). Live data has no geopolitical-risk or event updates: the last
+GPR value is carried forward and new days have no event. Predictions on live data therefore rely on
+market features only.
+
 ## Quantitative safeguards
 
 - Leakage tests:
