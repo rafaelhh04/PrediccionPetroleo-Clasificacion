@@ -237,7 +237,10 @@ def run(settings: Settings, features_file: Path | None = None) -> TrainingResult
         top_baseline,
         summary[top_baseline]["oos"]["auc_roc"],
     )
-    return TrainingResult(summary, best_params, final_models, X_all.head(5), n_windows)
+    # float64 example: MLflow infers the signature from it, and integer columns could not
+    # represent a missing value at inference time.
+    example = X_all.head(5).astype("float64")
+    return TrainingResult(summary, best_params, final_models, example, n_windows)
 
 
 def _save_metrics(
