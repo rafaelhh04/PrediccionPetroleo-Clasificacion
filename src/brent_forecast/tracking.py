@@ -193,6 +193,7 @@ def log_training(settings: Settings, result: TrainingResult) -> str:
             mlflow.log_artifacts(str(paths.plots_dir), "plots")
 
         children: dict[str, str] = {}
+        model_uris: dict[str, str] = {}
         for name, entry in result.summary.items():
             key = entry["key"]
             with mlflow.start_run(run_name=key, nested=True) as child:
@@ -209,7 +210,7 @@ def log_training(settings: Settings, result: TrainingResult) -> str:
                 for step, window in enumerate(entry["windows"]):
                     if window["auc_roc"] is not None:
                         mlflow.log_metric("window_auc", window["auc_roc"], step=step)
-                mlflow.sklearn.log_model(
+                logged = mlflow.sklearn.log_model(
                     result.final_models[key],
                     name="model",
                     input_example=result.input_example,
@@ -218,9 +219,15 @@ def log_training(settings: Settings, result: TrainingResult) -> str:
                     skops_trusted_types=list(TRUSTED_TYPES),
                 )
                 children[key] = child.info.run_id
+                model_uris[key] = logged.model_uri  # MLflow 3 logged model: models:/m-<id>
 
     run_id = str(parent.info.run_id)
-    info = {"run_id": run_id, "children": children, "uri": settings.tracking.uri}
+    info = {
+        "run_id": run_id,
+        "children": children,
+        "models": model_uris,
+        "uri": settings.tracking.uri,
+    }
     paths.run_info_file.write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
     logger.info("MLflow run %s logged to %s", run_id, settings.tracking.uri)
     return run_id
@@ -268,8 +275,9 @@ def log_evaluation(settings: Settings) -> Decision:
 
         versions: dict[str, str] = {}
         for alias, key in ((CHAMPION, decision.champion), (CHALLENGER, decision.challenger)):
-            run_id = info["children"][key]
-            mv = mlflow.register_model(f"runs:/{run_id}/model", cfg.registered_model)
+            # Runs logged before model URIs were recorded fall back to the run artefact path.
+            uri = info.get("models", {}).get(key, f"runs:/{info['children'][key]}/model")
+            mv = mlflow.register_model(uri, cfg.registered_model)
             tags = {
                 "candidate": key,
                 "kind": metrics["models"][_name(keys, key)]["kind"],

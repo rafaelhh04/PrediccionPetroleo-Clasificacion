@@ -133,6 +133,8 @@ def test_training_and_evaluation_are_tracked_and_the_champion_loads_by_alias(
 
     info = json.loads(tracked.paths.run_info_file.read_text())
     assert set(info["children"]) == {m["key"] for m in result.summary.values()}
+    assert set(info["models"]) == set(info["children"])
+    assert all(uri.startswith("models:/") for uri in info["models"].values())
     child = client.get_run(info["children"]["lightgbm"])
     assert child.data.tags["kind"] == "model"
     assert "oos_auc_roc" in child.data.metrics
