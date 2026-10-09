@@ -61,6 +61,11 @@ class PathsSettings(_Section):
         return self.results_dir / "metrics.json"
 
     @property
+    def run_info_file(self) -> Path:
+        """MLflow run ids of the last training run (links ``train`` and ``report``)."""
+        return self.results_dir / "mlflow_run.json"
+
+    @property
     def explain_dir(self) -> Path:
         """Feature importances and explanation summary written by ``brent explain``."""
         return self.results_dir / "explain"
@@ -176,6 +181,16 @@ class SearchSpace(_Section):
         return self
 
 
+class TrackingSettings(_Section):
+    """MLflow experiment tracking and model registry."""
+
+    enabled: bool
+    uri: str
+    artifact_dir: Path
+    experiment: str = Field(min_length=1)
+    registered_model: str = Field(min_length=1)
+
+
 class ExplainSettings(_Section):
     """Model explanations written by ``brent explain``."""
 
@@ -241,6 +256,7 @@ class Settings(BaseSettings):
     backtest: BacktestSettings
     tuning: TuningSettings
     explain: ExplainSettings
+    tracking: TrackingSettings
     models: ModelsSettings
 
     @classmethod

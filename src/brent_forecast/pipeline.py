@@ -20,11 +20,14 @@ Logging is configured by the caller (see ``brent_forecast.logging_config``).
 
 import json
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import joblib
 import numpy as np
+import pandas as pd
+from sklearn.base import clone
 from sklearn.model_selection import cross_val_score
 
 from brent_forecast.config import Settings
@@ -69,7 +72,22 @@ def prepare_data(settings: Settings) -> tuple[Dataset, Split]:
     return dataset, split_by_date(dataset.frame, settings.split)
 
 
-def run(settings: Settings) -> None:
+@dataclass(frozen=True)
+class TrainingResult:
+    """Everything a training run produced, for experiment tracking."""
+
+    summary: dict[str, dict[str, Any]]
+    """Display name -> ``key``, ``kind``, CV, out-of-sample and per-window metrics."""
+    best_params: dict[str, dict[str, Any]]
+    """Model key -> hyperparameters of its final pipeline."""
+    final_models: dict[str, Any]
+    """Candidate key (models and baselines) -> estimator refitted on all labelled data."""
+    input_example: pd.DataFrame
+    """A few feature rows, to record the model signature."""
+    n_windows: int
+
+
+def run(settings: Settings) -> TrainingResult:
     """Run the full pipeline with the given settings."""
     np.random.seed(settings.seed)
     paths, val = settings.paths, settings.validation
@@ -185,13 +203,16 @@ def run(settings: Settings) -> None:
         )
 
     # ─── 5. Final models on all data and artefacts ───────────────
-    logger.info("[5/5] Refitting every model on all data and saving artefacts")
-    for key, name in MODEL_NAMES.items():
-        pipeline = build_pipeline(key, best_params[key], settings.preprocessing).fit(X_all, y_all)
-        log_top_features(pipeline, name)
-        joblib.dump(pipeline, paths.models_dir / f"{key}.joblib")
+    logger.info("[5/5] Refitting every candidate on all data and saving artefacts")
+    final_models: dict[str, Any] = {}
+    for key, (name, kind, estimator) in candidates.items():
+        final = clone(estimator).fit(X_all, y_all)
+        joblib.dump(final, paths.models_dir / f"{key}.joblib")
+        final_models[key] = final
+        if kind == "model":
+            log_top_features(final, name)
         if key == "mlp":
-            plot_training_curves(pipeline.named_steps["model"].history_, paths.plots_dir)
+            plot_training_curves(final.named_steps["model"].history_, paths.plots_dir)
 
     oos.to_csv(paths.predictions_file, index=False, date_format="%Y-%m-%d")
     _save_metrics(summary, settings, n_windows, paths.metrics_file)
@@ -214,6 +235,7 @@ def run(settings: Settings) -> None:
         top_baseline,
         summary[top_baseline]["oos"]["auc_roc"],
     )
+    return TrainingResult(summary, best_params, final_models, X_all.head(5), n_windows)
 
 
 def _save_metrics(

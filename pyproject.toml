@@ -18,6 +18,7 @@ dependencies = [
     "kagglehub>=1.0",
     "lightgbm>=4.5",
     "matplotlib>=3.10",
+    "mlflow>=3.1",
     "numpy>=2.2",
     "optuna>=4.1",
     "pandas>=2.2",
@@ -57,7 +58,11 @@ addopts = ["-ra", "--strict-markers", "--strict-config", "-m", "not slow"]
 markers = ["slow: end-to-end tests that run the CLI training pipeline (excluded by default)"]
 xfail_strict = true
 # shap's colour maps use matplotlib APIs scheduled for deprecation (upstream issue).
-filterwarnings = ["ignore::PendingDeprecationWarning:shap.*"]
+filterwarnings = [
+    "ignore::PendingDeprecationWarning:shap.*",
+    # MLflow's SQLAlchemy store uses a deprecated loader strategy (upstream).
+    "ignore:The ``noload`` loader strategy:DeprecationWarning",
+]
 
 [tool.coverage.run]
 source = ["brent_forecast"]
