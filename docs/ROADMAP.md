@@ -357,7 +357,7 @@ campeón es el **baseline de persistencia** y la regresión logística queda com
 - Campeón por alias → predicción validada: test e2e (`test_tracking.py`) y `brent predict` en CLI.
 - Pandera: 23 tests de datos corruptos (`test_schemas.py`) + 21 de carga.
 - CI verde en 3.12 y 3.13; 516 tests, cobertura de ramas 98.5 %; `mypy --strict` sin `type: ignore` en
-  `src/`; `pre-commit` verde; `git grep -i claude` vacío; 133 commits, todos de rafaelhh04, sin trailers.
+  `src/`; `pre-commit` verde; sin menciones a herramientas de asistencia en el repositorio; 142 commits, todos de rafaelhh04, sin trailers.
 
 **Decisiones y desviaciones respecto al plan.**
 - Regla de promoción explícita (`select_champion`): el mejor modelo por AUC OOS solo es `champion` si supera
