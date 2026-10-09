@@ -7,6 +7,14 @@ from typing import NamedTuple
 
 import pandas as pd
 
+from brent_forecast.data.schemas import (
+    EVENTS_SCHEMA,
+    OIL_SCHEMA,
+    DataValidationError,
+    merged_schema,
+    validate,
+)
+
 logger = logging.getLogger(__name__)
 
 _EVENT_COLUMNS = ("event_type", "event_description", "event_severity")
@@ -45,7 +53,9 @@ def load_oil_data(oil_path: Path, events_path: Path, bounds: DateBounds) -> pd.D
     Raises
     ------
     ValueError
-        If either file lacks a ``date`` column or the merged frame fails validation.
+        If either file lacks a ``date`` column.
+    DataValidationError
+        If a file or the merged frame breaks its schema (see ``data.schemas``).
     """
     df_oil = load_oil_prices(oil_path)
     df_geo = load_geopolitical_events(events_path)
@@ -93,6 +103,8 @@ def load_oil_prices(path: Path) -> pd.DataFrame:
         df = df.dropna(subset=["date"])
         logger.warning("Dropping %d rows with an unparsable 'date' in %s", n_bad, path.name)
 
+    df = validate(df, OIL_SCHEMA)
+
     logger.info(
         "Loaded %s: %d rows | %s -> %s",
         path.name,
@@ -132,7 +144,7 @@ def load_geopolitical_events(path: Path) -> pd.DataFrame:
         raise ValueError(f"Column 'date' not found in {path.name}.")
 
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df = df.dropna(subset=["date"])
+    df = validate(df.dropna(subset=["date"]), EVENTS_SCHEMA)
 
     rename_map = {col: f"geo_{col}" for col in _EVENT_COLUMNS if col in df.columns}
     if rename_map:
@@ -181,56 +193,25 @@ def _resolve_overlap(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _validate(df: pd.DataFrame, expected_rows: int, bounds: DateBounds) -> None:
-    """Check the integrity of the merged frame.
+    """Check the merged frame against :func:`~brent_forecast.data.schemas.merged_schema`.
 
-    Checks: no duplicated dates, the left join neither added nor lost rows, no
-    nulls in ``event_severity`` / ``event_type`` and a plausible date range.
+    Checks: unique and increasing dates, the left join neither added nor lost
+    rows, no nulls in ``event_severity`` / ``event_type`` and a plausible date range.
 
     Raises
     ------
-    ValueError
-        If any check fails (every failure is logged first).
+    DataValidationError
+        Listing every failed check (also logged).
     """
-    errors = []
-
-    n_dup = df["date"].duplicated().sum()
-    if n_dup > 0:
-        errors.append(f"DUPLICATES in 'date': {n_dup} duplicated rows.")
-
-    if len(df) != expected_rows:
-        errors.append(
-            f"ROWS: expected {expected_rows}, got {len(df)}. "
-            "The left join added or lost rows (possible duplicate in the events dataset)."
-        )
-
-    if "event_severity" in df.columns:
-        n_null_sev = df["event_severity"].isna().sum()
-        if n_null_sev > 0:
-            errors.append(f"NULLS in 'event_severity': {n_null_sev} unfilled values.")
-
-    if "event_type" in df.columns:
-        n_null_type = df["event_type"].isna().sum()
-        if n_null_type > 0:
-            errors.append(f"NULLS in 'event_type': {n_null_type} unfilled values.")
-
-    min_date = df["date"].min()
-    max_date = df["date"].max()
-    if not bounds.start_min <= min_date.date() <= bounds.start_max:
-        errors.append(
-            f"DATE RANGE: unexpected minimum date ({min_date.date()}); expected between "
-            f"{bounds.start_min} and {bounds.start_max}."
-        )
-    if max_date.date() < bounds.end_min:
-        errors.append(
-            f"DATE RANGE: unexpected maximum date ({max_date.date()}); expected on or after "
-            f"{bounds.end_min}."
-        )
-
-    if errors:
-        for e in errors:
-            logger.error("Validation failed: %s", e)
-        raise ValueError(f"Validation failed with {len(errors)} error(s); see the log above.")
-    logger.info("Validation passed: no duplicated dates")
-    logger.info("Validation passed: row count %d == %d", len(df), expected_rows)
-    logger.info("Validation passed: no nulls in event_severity / event_type")
-    logger.info("Validation passed: date range %s -> %s", min_date.date(), max_date.date())
+    schema = merged_schema(expected_rows, bounds.start_min, bounds.start_max, bounds.end_min)
+    try:
+        validate(df, schema)
+    except DataValidationError as exc:
+        logger.error("%s", exc)
+        raise
+    logger.info(
+        "Validation passed: %d rows, %s -> %s",
+        len(df),
+        df["date"].min().date(),
+        df["date"].max().date(),
+    )
