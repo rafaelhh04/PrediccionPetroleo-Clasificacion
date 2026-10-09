@@ -288,3 +288,35 @@ def test_report_without_a_training_run_fails(settings: Settings, tmp_path: Path)
 
     assert result.exit_code == 1
     assert "run `brent train` first" in result.output
+
+
+# ── DVC stages ────────────────────────────────────────────────
+
+
+def test_data_validate_and_featurize(
+    config_file: Path, settings: Settings, raw_data_dir: Path
+) -> None:
+    validate = invoke(["--config", str(config_file), "data", "validate"])
+    featurize = invoke(["--config", str(config_file), "featurize"])
+
+    assert validate.exit_code == 0, validate.output
+    assert "Valid:" in validate.output
+    assert settings.paths.validation_file.is_file()
+    assert featurize.exit_code == 0, featurize.output
+    assert settings.paths.dataset_file.is_file()
+
+
+def test_data_validate_and_featurize_fail_without_data(settings: Settings, tmp_path: Path) -> None:
+    config = _write_config(settings, tmp_path / "config.yaml")
+
+    assert invoke(["--config", str(config), "data", "validate"]).exit_code == 1
+    assert invoke(["--config", str(config), "featurize"]).exit_code == 1
+
+
+def test_train_rejects_a_missing_features_file(settings: Settings, tmp_path: Path) -> None:
+    config = _write_config(settings, tmp_path / "config.yaml")
+
+    result = invoke(["--config", str(config), "train", "--features", str(tmp_path / "x.parquet")])
+
+    assert result.exit_code == 1
+    assert "brent featurize" in result.output

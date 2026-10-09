@@ -24,14 +24,14 @@ data:
   oil_filename: oil_geopolitics_dataset_2010_2026.csv
   events_filename: geopolitical_events_timeline.csv
   # Sanity bounds checked after loading (catch a truncated or wrong file).
-  expected_start_min: 2009-01-01
-  expected_start_max: 2011-12-31
-  expected_end_min: 2025-01-01
+  expected_start_min: "2009-01-01"
+  expected_start_max: "2011-12-31"
+  expected_end_min: "2025-01-01"
 
 # Development period: everything before `test_start` (hyperparameter tuning).
 # Out-of-sample period: from `test_start` on, evaluated by walk-forward.
 split:
-  test_start: 2024-01-01
+  test_start: "2024-01-01"
 
 preprocessing:
   vif_threshold: 10.0     # iteratively drop the feature with the highest VIF above this

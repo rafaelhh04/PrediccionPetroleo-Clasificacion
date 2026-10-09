@@ -36,6 +36,16 @@ class PathsSettings(_Section):
     checksums_file: Path
 
     @property
+    def dataset_file(self) -> Path:
+        """Featurized dataset (Parquet) written by ``brent featurize``, next to ``data_dir``."""
+        return self.data_dir.parent / "processed" / "dataset.parquet"
+
+    @property
+    def validation_file(self) -> Path:
+        """Summary of the raw-data validation (``brent data validate``)."""
+        return self.results_dir / "validation.json"
+
+    @property
     def plots_dir(self) -> Path:
         """Directory for generated figures."""
         return self.results_dir / "plots"

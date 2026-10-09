@@ -32,7 +32,7 @@ from sklearn.model_selection import cross_val_score
 
 from brent_forecast.config import Settings
 from brent_forecast.data.download import load_checksums, sha256sum
-from brent_forecast.data.load import DateBounds, load_oil_data
+from brent_forecast.data.stages import load_raw, read_features
 from brent_forecast.evaluation.learning_curves import plot_learning_curve, plot_training_curves
 from brent_forecast.evaluation.metrics import log_full_metrics, plot_confusion_matrix
 from brent_forecast.evaluation.oos import (
@@ -60,15 +60,17 @@ logger = logging.getLogger(__name__)
 _SEARCH_N_JOBS = {"random_forest": 1}
 
 
-def prepare_data(settings: Settings) -> tuple[Dataset, Split]:
-    """Load the raw files, build the dataset and split it at ``split.test_start``."""
-    paths, data = settings.paths, settings.data
-    df = load_oil_data(
-        paths.data_dir / data.oil_filename,
-        paths.data_dir / data.events_filename,
-        DateBounds(data.expected_start_min, data.expected_start_max, data.expected_end_min),
-    )
-    dataset = build_dataset(df)
+def prepare_data(settings: Settings, features_file: Path | None = None) -> tuple[Dataset, Split]:
+    """Build (or read) the dataset and split it at ``split.test_start``.
+
+    With ``features_file`` the dataset written by ``brent featurize`` is used as
+    is (the versioned DVC snapshot); otherwise it is built from the raw files.
+    """
+    if features_file is not None:
+        logger.info("Reading the featurized dataset from %s", features_file)
+        dataset = read_features(features_file)
+    else:
+        dataset = build_dataset(load_raw(settings))
     return dataset, split_by_date(dataset.frame, settings.split)
 
 
@@ -87,8 +89,8 @@ class TrainingResult:
     n_windows: int
 
 
-def run(settings: Settings) -> TrainingResult:
-    """Run the full pipeline with the given settings."""
+def run(settings: Settings, features_file: Path | None = None) -> TrainingResult:
+    """Run the full pipeline (on ``features_file`` if given, see :func:`prepare_data`)."""
     np.random.seed(settings.seed)
     paths, val = settings.paths, settings.validation
     paths.plots_dir.mkdir(parents=True, exist_ok=True)
@@ -97,7 +99,7 @@ def run(settings: Settings) -> TrainingResult:
 
     # ─── 1. Load and build the dataset ───────────────────────────
     logger.info("[1/5] Loading data and building the dataset")
-    dataset, parts = prepare_data(settings)
+    dataset, parts = prepare_data(settings, features_file)
     cols = dataset.feature_cols
     X_dev, y_dev = parts.dev[cols], parts.dev["label"]
     X_all, y_all = dataset.features, dataset.target
