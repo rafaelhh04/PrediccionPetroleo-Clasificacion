@@ -1,0 +1,11 @@
+# Build context: only what the image needs (pyproject.toml, uv.lock, README.md,
+# LICENSE, src/ and configs/). Everything else is excluded.
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!LICENSE
+!src/
+!configs/
+**/__pycache__
+**/*.py[cod]
