@@ -129,6 +129,11 @@ model that cannot beat a naive rule only adds risk.
 GPR value is carried forward and new days have no event. Predictions on live data therefore rely on
 market features only.
 
+`brent serve` exposes the same alias over HTTP (`POST /predict`, `GET /health`, `GET /model-info`). The
+API validates every request against the model's input contract (the feature names of its MLflow
+signature) and `INFERENCE_SCHEMA`, and `GET /model-info` returns the candidate and the promotion reason,
+so a client can always tell when the served "model" is a naive baseline.
+
 ## Quantitative safeguards
 
 - Leakage tests:

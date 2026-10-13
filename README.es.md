@@ -151,6 +151,24 @@ genera una vista global (beeswarm, |SHAP| medio) y una local (waterfall del últ
 volatilidad, Sharpe, drawdown máximo, hit ratio, exposición y número de operaciones, y un intervalo por
 block bootstrap de la diferencia de Sharpe frente a buy & hold.
 
+## Servir el modelo (API HTTP)
+
+`brent serve` (FastAPI + Pydantic v2) sirve el modelo registrado con el alias `serving.alias` (`champion`
+por defecto; `BRENT_SERVING__ALIAS=challenger` lo cambia). Documentación interactiva en `/docs`.
+
+| Endpoint | Función | Códigos |
+|----------|---------|---------|
+| `GET /health` | *Readiness*: modelo cargado (versión, o el motivo si no lo está) | 200 / 503 |
+| `GET /health/live` | *Liveness*: el proceso responde | 200 |
+| `GET /model-info` | Alias, versión, candidato, motivo de la promoción, run de entrenamiento, umbral y **nombres de las features esperadas** | 200 / 503 |
+| `POST /predict` | `P(sube)` y dirección para las `features` del cuerpo, o para el último día si el cuerpo está vacío | 200 / 422 / 503 |
+
+El modelo se carga del registry al arrancar (con sus tags y la firma MLflow); si aún no hay modelo, la API
+arranca igualmente, responde 503 y reintenta cada `serving.reload_interval_seconds`. La entrada se valida
+con Pydantic (números finitos, sin campos desconocidos), contra la firma del modelo (features ausentes o
+desconocidas) y con `INFERENCE_SCHEMA`; todos los errores son 422 con el formato de FastAPI. La API y
+`brent predict` comparten `predict.predict_features`.
+
 ## Resultados (AUC-ROC)
 
 > **¿Qué cifras son reales?** Solo la primera tabla (ejecución antigua del código original con los datos de
@@ -204,6 +222,8 @@ de 50 estimaciones ruidosas) y cayó a 0.450 fuera de muestra.
 │   ├── config.py               # configuración tipada (pydantic-settings)
 │   ├── logging_config.py       # logging a consola y a fichero
 │   ├── pipeline.py             # orquestación del entrenamiento
+│   ├── predict.py              # predicción del día siguiente (CLI y API)
+│   ├── api/                    # servicio de inferencia FastAPI (`brent serve`)
 │   ├── data/                   # descarga de Kaggle + checksums, carga y merge
 │   ├── features/               # label, features, VIF, split, winsorización, escalado
 │   ├── models/                 # LogReg, SVM, RF, MLP NumPy, LightGBM, baselines y tuning

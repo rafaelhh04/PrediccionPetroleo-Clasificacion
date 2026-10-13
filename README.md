@@ -107,6 +107,7 @@ brent [--config PATH] [--log-level LEVEL] COMMAND
   data validate    Validate the raw files and write results/validation.json
   data ingest      Append recent market data to data/live/ (Yahoo Finance, FRED)  [--end DATE]
   predict          Predict the next trading day with a registered model  [--alias] [--live/--snapshot]
+  serve            Serve the registered model over HTTP (FastAPI)  [--host] [--port]
   config show      Print the resolved configuration as JSON
 ```
 
@@ -322,6 +323,38 @@ still unknown. It validates them with `INFERENCE_SCHEMA` and prints and saves `P
 
 On the synthetic data the champion is the persistence baseline, so it predicts "up" after an up day.
 
+### Serving (HTTP API)
+
+`brent serve` (`api/`, FastAPI + Pydantic v2) serves the same registered model over HTTP:
+
+```bash
+uv run brent serve --host 127.0.0.1 --port 8000   # interactive docs at http://127.0.0.1:8000/docs
+curl -s localhost:8000/health
+curl -s -X POST localhost:8000/predict            # the latest available day
+curl -s -X POST localhost:8000/predict -H 'content-type: application/json' \
+     -d '{"features": {"dxy_index": 103.2, "vix": 17.4, "...": 0.0}, "as_of": "2026-03-12"}'
+```
+
+| Endpoint | Purpose | Codes |
+|----------|---------|-------|
+| `GET /health` | Readiness: the model is loaded (`model_loaded`, `version`, or why not in `detail`) | 200 / 503 |
+| `GET /health/live` | Liveness: the process answers | 200 |
+| `GET /model-info` | Alias, version, candidate, kind, promotion reason, training run, threshold and the **expected feature names** (input contract) | 200 / 503 |
+| `POST /predict` | `P(up)` and direction for the body's `features`, or for the latest day when the body is empty | 200 / 422 / 503 |
+
+- **Model loading.** At start-up (FastAPI lifespan) the service loads `models:/<registered_model>@<alias>`
+  (`serving.alias`, `champion` by default; `BRENT_SERVING__ALIAS=challenger` switches it) together with its
+  registry tags and the column names of its MLflow signature. If the registry is empty the API still starts,
+  answers 503 and retries at most every `serving.reload_interval_seconds`.
+- **Input validation.** Pydantic rejects strings, booleans, NaN/infinity and unknown body fields; the
+  feature names must match the model's signature exactly (missing → `missing`, unknown → `extra_forbidden`);
+  the row is then checked with `INFERENCE_SCHEMA`. All errors are 422 with FastAPI's
+  `{"detail": [{"loc", "msg", "type"}]}` format (the offending input is not echoed).
+- **One prediction path.** The API and `brent predict` both call `predict.predict_features`. For the latest
+  day the API reuses `latest_features` and caches the row until a data file changes.
+- **Response.** `{"as_of", "proba_up", "direction", "threshold", "source", "model": {"alias", "version",
+  "candidate"}}`, where `source` is `live`, `snapshot` or `request`.
+
 ### Explainability
 
 `brent explain` (`evaluation/explain.py`) refits each model listed in `explain.models` on the development
@@ -420,6 +453,8 @@ Effect of the v2 features (same protocol; v1 = 14 features, v2 = 29 before the V
 │   ├── config.py               # typed settings (pydantic-settings)
 │   ├── logging_config.py       # console + per-run file logging
 │   ├── pipeline.py             # end-to-end training orchestration
+│   ├── predict.py              # next-day prediction (shared by `brent predict` and the API)
+│   ├── api/                    # FastAPI inference service (`brent serve`)
 │   ├── data/                   # Kaggle download + checksums, loading and merge
 │   ├── features/               # label, past-only features, split; VIFSelector / Winsorizer transformers
 │   ├── models/                 # registry of model pipelines (incl. LightGBM), NumPy MLP, baselines, grid and Optuna tuning
