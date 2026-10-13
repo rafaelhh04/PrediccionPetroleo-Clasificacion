@@ -23,11 +23,16 @@ COMPOSE = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text())
 
 
 def _stages() -> list[str]:
-    return re.findall(r"^FROM .+ AS (\w+)$", DOCKERFILE, flags=re.MULTILINE)
+    return re.findall(r"^FROM .+ AS ([\w-]+)$", DOCKERFILE, flags=re.MULTILINE)
+
+
+def _stage(name: str) -> str:
+    """Body of stage ``name`` (up to the next FROM)."""
+    return DOCKERFILE.split(f" AS {name}\n", 1)[1].split("\nFROM ", 1)[0]
 
 
 def _runtime() -> str:
-    return DOCKERFILE.split("AS runtime", 1)[1]
+    return _stage("runtime")
 
 
 def _in_context(path: str) -> bool:
@@ -41,25 +46,29 @@ def _in_context(path: str) -> bool:
     return included
 
 
-def test_the_image_is_multi_stage_with_a_runtime_stage() -> None:
-    assert _stages() == ["uv", "builder", "runtime"]
+def test_the_images_are_multi_stage_and_the_api_is_the_default_target() -> None:
+    assert _stages() == ["uv", "builder", "builder-dashboard", "base", "dashboard", "runtime"]
+    assert _stages()[-1] == "runtime"  # `docker build .` produces the API image
     assert "--no-dev" in DOCKERFILE
     assert "--frozen" in DOCKERFILE
+    assert "--extra dashboard" in _stage("builder-dashboard")
+    assert "--extra" not in _stage("builder")  # the API image has no Streamlit
 
 
-def test_the_runtime_stage_runs_unprivileged_with_a_healthcheck() -> None:
-    runtime = _runtime()
-    user = re.findall(r"^USER (\S+)$", runtime, flags=re.MULTILINE)
-
+def test_the_final_images_run_unprivileged_with_a_healthcheck() -> None:
+    user = re.findall(r"^USER (\S+)$", _stage("base"), flags=re.MULTILINE)
     assert user and not user[-1].startswith(("root", "0"))
-    assert "HEALTHCHECK" in runtime
-    assert "/health" in runtime.split("HEALTHCHECK", 1)[1]
-    assert "uv" not in re.findall(r"^COPY --from=(\w+)", runtime, flags=re.MULTILINE)
+    for stage, probe in (("runtime", "/health"), ("dashboard", "/_stcore/health")):
+        body = _stage(stage)
+        assert re.search(rf"^FROM base AS {stage}$", DOCKERFILE, flags=re.MULTILINE), stage
+        assert probe in body.split("HEALTHCHECK", 1)[1], stage
+        copied = re.findall(r"^COPY --from=([\w-]+)", body, flags=re.MULTILINE)
+        assert copied and "uv" not in copied, stage
 
 
 def test_the_default_command_serves_the_api_on_all_interfaces() -> None:
-    entrypoint = re.search(r"^ENTRYPOINT (.+)$", DOCKERFILE, flags=re.MULTILINE)
-    command = re.search(r"^CMD (.+)$", DOCKERFILE, flags=re.MULTILINE)
+    entrypoint = re.search(r"^ENTRYPOINT (.+)$", _stage("base"), flags=re.MULTILINE)
+    command = re.search(r"^CMD (.+)$", _runtime(), flags=re.MULTILINE)
     assert entrypoint and command
 
     args = [*yaml.safe_load(entrypoint.group(1)), *yaml.safe_load(command.group(1))]
@@ -87,7 +96,7 @@ def test_the_build_context_holds_only_code_and_configuration() -> None:
 def test_compose_runs_the_api_and_mlflow_on_shared_volumes() -> None:
     services = COMPOSE["services"]
 
-    assert {"api", "mlflow", "trainer"} <= set(services)
+    assert {"api", "dashboard", "mlflow", "trainer"} <= set(services)
     assert services["trainer"]["profiles"] == ["train"]  # never started by `up`
     for name in ("api", "mlflow", "trainer"):
         volumes = services[name]["volumes"]
@@ -96,6 +105,15 @@ def test_compose_runs_the_api_and_mlflow_on_shared_volumes() -> None:
         assert "./data:/app/data:ro" in volumes, name
     assert set(COMPOSE["volumes"]) == {"mlruns", "results"}
     assert services["api"]["ports"] == ["${API_PORT:-8000}:8000"]
+
+
+def test_the_dashboard_reads_results_and_calls_the_api_service() -> None:
+    dashboard = COMPOSE["services"]["dashboard"]
+
+    assert dashboard["build"]["target"] == "dashboard"
+    assert "results:/app/results:ro" in dashboard["volumes"]
+    assert dashboard["environment"]["BRENT_DASHBOARD__API_URL"] == "http://api:8000"
+    assert dashboard["depends_on"] == ["api"]
 
 
 def test_the_mlflow_server_uses_the_same_store_as_the_api() -> None:
@@ -107,12 +125,12 @@ def test_the_mlflow_server_uses_the_same_store_as_the_api() -> None:
     assert "--backend-store-uri=sqlite:////app/mlruns/mlflow.db" in command
     # The API resolves the relative default URI against WORKDIR /app: the same file.
     assert default_uri == "sqlite:///mlruns/mlflow.db"
-    assert re.search(r"^WORKDIR /app$", _runtime(), flags=re.MULTILINE)
+    assert re.search(r"^WORKDIR /app$", _stage("base"), flags=re.MULTILINE)
 
 
-def test_the_trainer_trains_then_reports() -> None:
+def test_the_trainer_trains_reports_and_explains() -> None:
     trainer = COMPOSE["services"]["trainer"]
 
     steps = [shlex.split(step) for step in trainer["command"][0].split("&&")]
 
-    assert steps == [["brent", "train"], ["brent", "report"]]
+    assert steps == [["brent", "train"], ["brent", "report"], ["brent", "explain"]]

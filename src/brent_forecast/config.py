@@ -240,6 +240,13 @@ class ServingSettings(_Section):
     reload_interval_seconds: float = Field(ge=0.0)
 
 
+class DashboardSettings(_Section):
+    """Streamlit demo (``brent dashboard``): where the inference API is."""
+
+    api_url: str = Field(min_length=1)
+    timeout_seconds: PositiveFloat
+
+
 class ExplainSettings(_Section):
     """Model explanations written by ``brent explain``."""
 
@@ -308,6 +315,7 @@ class Settings(BaseSettings):
     tracking: TrackingSettings
     live: LiveSettings
     serving: ServingSettings
+    dashboard: DashboardSettings
     models: ModelsSettings
 
     @classmethod

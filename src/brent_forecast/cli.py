@@ -340,6 +340,45 @@ def serve(
     uvicorn.run(app, host=host, port=port, log_config=None, access_log=False)
 
 
+@app.command()
+def dashboard(
+    ctx: typer.Context,
+    host: Annotated[str, typer.Option("--host", help="Interface to bind.")] = "127.0.0.1",
+    port: Annotated[int, typer.Option("--port", min=1, max=65535, help="TCP port.")] = 8501,
+) -> None:
+    """Run the Streamlit demo (needs the `dashboard` extra and, for predictions, `brent serve`)."""
+    import subprocess
+    import sys
+    from importlib.util import find_spec
+
+    if find_spec("streamlit") is None:
+        typer.secho(
+            "Streamlit is not installed: `uv sync --extra dashboard`.",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    # Located, not imported: importing the script would draw the page outside Streamlit.
+    script = find_spec("brent_forecast.dashboard.app")
+    assert script is not None and script.origin is not None
+    state = _state(ctx)
+    command = [
+        sys.executable,
+        "-m",
+        "streamlit",
+        "run",
+        script.origin,
+        f"--server.address={host}",
+        f"--server.port={port}",
+        "--server.headless=true",
+        "--browser.gatherUsageStats=false",
+        "--",
+        "--config",
+        str(state.config_path),
+    ]
+    raise typer.Exit(code=subprocess.call(command))
+
+
 @data_app.command("verify")
 def data_verify(ctx: typer.Context) -> None:
     """Verify the SHA-256 checksums of the local data files."""

@@ -108,6 +108,7 @@ brent [--config PATH] [--log-level LEVEL] COMMAND
   data ingest      Append recent market data to data/live/ (Yahoo Finance, FRED)  [--end DATE]
   predict          Predict the next trading day with a registered model  [--alias] [--live/--snapshot]
   serve            Serve the registered model over HTTP (FastAPI)  [--host] [--port]
+  dashboard        Run the Streamlit demo (needs the `dashboard` extra)  [--host] [--port]
   config show      Print the resolved configuration as JSON
 ```
 
@@ -407,6 +408,25 @@ processes or replicas rather than threads.
 Each app instance owns its metrics registry: one process per container. With several uvicorn workers,
 Prometheus' multiprocess mode would be needed.
 
+### Demo dashboard (Streamlit)
+
+`brent dashboard` (`dashboard/`, the `dashboard` extra: `uv sync --extra dashboard`) opens a one-page demo
+on `:8501`:
+
+- **Data provenance banner.** It shows *real* only when the training data matched the committed Kaggle
+  checksums (`metrics.json`, `matches_recorded_checksums`). Otherwise it warns that the results are
+  synthetic, or that the files differ from the published dataset.
+- **Prediction for the next trading day,** requested from the API (`dashboard.api_url`). It shows the
+  probability, the direction, the last observed day and the served version and candidate, with a notice
+  when the champion is a naive baseline.
+- **Tabs:** price history (Brent and WTI, 1/3/5 years or all), the statistical report (conclusions, AUC with
+  CIs, ΔAUC, Holm p-values, ROC and reliability figures), the backtest after costs (Sharpe, CAGR, drawdown,
+  equity curves) and the explanations (top mean |SHAP| features, beeswarm and waterfall per model).
+
+Every section reads the artefacts in `results/` and names the command that creates them when they are
+missing. The page also works without the API: it shows an error and keeps the other sections. The loaders
+are plain functions (`dashboard/data.py`); the page is tested headlessly with Streamlit's `AppTest`.
+
 ### Containers (Docker)
 
 `Dockerfile` (multi-stage): a `builder` stage installs the locked **runtime** dependencies with uv
@@ -416,14 +436,15 @@ the unprivileged user `brent` (uid 10001) and declares a `HEALTHCHECK` on `/heal
 the build context to `pyproject.toml`, `uv.lock`, `src/`, `configs/`, `README.md` and `LICENSE`, so no data,
 results or credentials can reach the image.
 
-`docker-compose.yml` runs the API (`:8000`) and an MLflow tracking server with the UI (`:5000`) on the same
-registry. A one-off `trainer` service (profile `train`) runs `brent train && brent report`:
+`docker-compose.yml` runs the API (`:8000`), the Streamlit dashboard (`:8501`, image target `dashboard`)
+and an MLflow tracking server with the UI (`:5000`) on the same registry. A one-off `trainer` service
+(profile `train`) runs `brent train && brent report && brent explain`:
 
 ```bash
 uv run brent data download                          # data/ is mounted read-only into the containers
 docker compose build
-docker compose --profile train run --rm trainer     # ~12 min: train, report, register the champion
-docker compose up -d                                # API http://localhost:8000/docs, MLflow http://localhost:5000
+docker compose --profile train run --rm trainer     # ~13 min: train, report + champion, explanations
+docker compose up -d                                # API :8000/docs, dashboard :8501, MLflow :5000
 curl -s localhost:8000/health                       # {"status": "ok", "model_loaded": true, ...}
 ```
 
@@ -438,7 +459,10 @@ curl -s localhost:8000/health                       # {"status": "ok", "model_lo
   (non-root user, liveness 200, readiness 503 without a registry). It then scans the image with **Trivy**:
   a HIGH/CRITICAL report for information, and a gate that fails on any CRITICAL vulnerability with a fix
   available. Dependabot also tracks the base images.
-- **Size.** The image is about 390 MB compressed (1.7 GB on disk) because the runtime dependencies include
+- **Two images, one Dockerfile.** `docker build .` produces the API image (`runtime`, the last stage);
+  `--target dashboard` adds the `dashboard` extra (Streamlit) on the same base, so the API image does not
+  carry it.
+- **Size.** The API image is about 390 MB compressed (1.7 GB on disk) because the runtime dependencies include
   the training stack (MLflow server, SHAP/numba, LightGBM, SciPy). Splitting them into serving and training
   extras is a known follow-up.
 
@@ -542,6 +566,7 @@ Effect of the v2 features (same protocol; v1 = 14 features, v2 = 29 before the V
 │   ├── pipeline.py             # end-to-end training orchestration
 │   ├── predict.py              # next-day prediction (shared by `brent predict` and the API)
 │   ├── api/                    # FastAPI inference service (`brent serve`)
+│   ├── dashboard/              # Streamlit demo (`brent dashboard`)
 │   ├── data/                   # Kaggle download + checksums, loading and merge
 │   ├── features/               # label, past-only features, split; VIFSelector / Winsorizer transformers
 │   ├── models/                 # registry of model pipelines (incl. LightGBM), NumPy MLP, baselines, grid and Optuna tuning
@@ -549,7 +574,7 @@ Effect of the v2 features (same protocol; v1 = 14 features, v2 = 29 before the V
 ├── tests/                      # unit, leakage-guard, gradient-check and property tests
 ├── .github/                    # CI workflow, Dependabot, templates, CODEOWNERS, ruleset
 ├── Dockerfile / .dockerignore  # multi-stage inference image (uv, non-root, HEALTHCHECK)
-├── docker-compose.yml          # API + MLflow server (+ one-off trainer)
+├── docker-compose.yml          # API + dashboard + MLflow server (+ one-off trainer)
 ├── Makefile
 └── pyproject.toml / uv.lock
 ```
