@@ -182,6 +182,18 @@ un único proceso uvicorn y Locust en la misma máquina de 4 cores:
 Una predicción aislada tarda 25–40 ms (≈22 ms son la validación Pandera); un proceso se satura en
 ~40 req/s (GIL): para escalar, más procesos o réplicas.
 
+## Observabilidad
+
+- ***Request id***: cada petición recibe un id (el `X-Request-ID` del cliente si es seguro o un UUID nuevo),
+  que se devuelve en la misma cabecera y se añade a todos los logs emitidos mientras se atiende.
+- **Logs estructurados**: `--log-format json` (o `BRENT_LOG_FORMAT=json`, por defecto en la imagen) escribe
+  un objeto JSON por línea con `time`, `level`, `logger`, `message`, `request_id` y los campos `extra`; la API
+  registra una línea de acceso por petición (método, ruta, estado, duración).
+- **Métricas Prometheus** en `GET /metrics` (fuera del contrato OpenAPI): métricas HTTP de
+  `prometheus-fastapi-instrumentator` y propias: `brent_predictions_total{alias,direction,source}`,
+  `brent_model_inference_seconds{alias}` (validación + `predict_proba`), `brent_model_loaded{alias}`,
+  `brent_model_info{alias,version,candidate,kind}` y `brent_model_load_failures_total{alias}`.
+
 ## Contenedores (Docker)
 
 `Dockerfile` *multi-stage*: el `builder` instala con uv solo las dependencias de **runtime** del lockfile

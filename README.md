@@ -375,6 +375,38 @@ An isolated prediction takes 25–40 ms, and about 22 ms of that is the Pandera 
 process saturates at about 40 req/s (the GIL), so latency beyond that is queueing. Scale out with more
 processes or replicas rather than threads.
 
+### Observability
+
+`api/observability.py` adds three things to the service:
+
+- **Request id.** Every request gets an id: the client's `X-Request-ID` when it is a safe token (at most
+  128 characters from `[A-Za-z0-9._:-]`), a new UUID otherwise. The response returns it in the same header,
+  and every log record emitted while serving the request carries it, including the data loading and model
+  logs.
+- **Structured logs.** `--log-format json` (or `BRENT_LOG_FORMAT=json`, the default in the image) writes one
+  JSON object per line with `time`, `level`, `logger`, `message`, `request_id` and any `extra` fields. The
+  API writes one access record per request, `{"method", "path", "status", "duration_ms"}`, instead of
+  uvicorn's access log. Probes (`/health`, `/metrics`) are logged at DEBUG.
+- **Prometheus metrics** at `GET /metrics` (outside the OpenAPI contract). HTTP metrics by handler, method
+  and status come from `prometheus-fastapi-instrumentator`. The service adds its own:
+
+| Metric | Type | Labels | Meaning |
+|--------|------|--------|---------|
+| `brent_predictions_total` | counter | `alias`, `direction`, `source` | predictions served (`up` / `down/flat`; `live`, `snapshot`, `request`) |
+| `brent_model_inference_seconds` | histogram | `alias` | model latency: input validation + `predict_proba` |
+| `brent_model_loaded` | gauge | `alias` | 1 when a model is loaded |
+| `brent_model_info` | gauge (1) | `alias`, `version`, `candidate`, `kind` | identity of the served model (spot a baseline champion) |
+| `brent_model_load_failures_total` | counter | `alias` | failed attempts to load the model |
+
+```json
+{"time": "2026-10-13T15:11:18.210+00:00", "level": "INFO", "logger": "brent_forecast.api.access",
+ "message": "POST /predict 200", "method": "POST", "path": "/predict", "status": 200,
+ "duration_ms": 24.1, "request_id": "abc-123"}
+```
+
+Each app instance owns its metrics registry: one process per container. With several uvicorn workers,
+Prometheus' multiprocess mode would be needed.
+
 ### Containers (Docker)
 
 `Dockerfile` (multi-stage): a `builder` stage installs the locked **runtime** dependencies with uv
