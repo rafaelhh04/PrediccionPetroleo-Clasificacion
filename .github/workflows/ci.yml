@@ -70,6 +70,43 @@ jobs:
           flags: unittests
           fail_ci_if_error: false # coverage is enforced by pytest (fail_under = 85), not by Codecov
 
+  docker:
+    name: Docker image (build, smoke test, Trivy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      IMAGE: brent-forecast:ci
+      # Pinned scanner image (Dependabot does not track it: bump it by hand).
+      TRIVY_IMAGE: aquasec/trivy:0.75.0
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the image
+        run: docker build --tag "$IMAGE" .
+      - name: Validate docker-compose.yml
+        run: docker compose config --quiet
+      - name: Smoke test (non-root user, liveness, readiness without a registry)
+        run: |
+          docker run --detach --name api --publish 8000:8000 "$IMAGE"
+          for _ in $(seq 60); do curl --silent --fail localhost:8000/health/live && break; sleep 2; done
+          echo
+          test "$(docker exec api id -u)" = "10001"
+          # No registry in the image: the API is up but not ready (503) and says why.
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' localhost:8000/health)" = "503"
+          curl --silent localhost:8000/health
+          docker inspect --format '{{json .Config.Healthcheck}}' api
+      - name: Container logs
+        if: always()
+        run: docker logs api || true
+      - name: Trivy report (HIGH and CRITICAL, informational)
+        run: >-
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache
+          "$TRIVY_IMAGE" image --scanners vuln --severity HIGH,CRITICAL --no-progress "$IMAGE"
+      - name: Trivy gate (fail on fixable CRITICAL vulnerabilities)
+        run: >-
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache
+          "$TRIVY_IMAGE" image --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1
+          --skip-db-update --no-progress "$IMAGE"
+
   slow:
     name: Slow end-to-end tests
     # Only on demand and on the weekly schedule: they run the full CLI training.
