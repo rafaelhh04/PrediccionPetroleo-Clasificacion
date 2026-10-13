@@ -77,6 +77,13 @@ class ModelService:
         self._served: ServedModel | None = None
         self._error: str | None = "not loaded yet"
         self._last_attempt: float | None = None
+        self.load_failures = 0
+        """Failed loading attempts since start-up (exported as a metric)."""
+
+    @property
+    def served(self) -> ServedModel | None:
+        """The loaded model, without triggering a new loading attempt."""
+        return self._served
 
     @property
     def alias(self) -> str:
@@ -110,6 +117,7 @@ class ModelService:
             served = self._loader(self.settings, self.alias)
         except Exception as exc:  # any failure leaves the API up and not ready (503)
             self._error = f"{type(exc).__name__}: {exc}"
+            self.load_failures += 1
             logger.warning("Could not load model alias %r: %s", self.alias, self._error)
             return None
         self._served, self._error = served, None

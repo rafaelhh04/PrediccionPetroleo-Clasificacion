@@ -12,10 +12,12 @@ Status codes:
   the latest day, the data files are missing or invalid.
 
 Predictions go through :func:`brent_forecast.predict.predict_features`, exactly
-like ``brent predict``.
+like ``brent predict``. Observability (request ids, access log, ``/metrics``) is
+described in :mod:`brent_forecast.api.observability`.
 """
 
-from collections.abc import AsyncIterator
+import time
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from importlib.metadata import version
 from typing import Annotated, Any
@@ -26,6 +28,11 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
+from brent_forecast.api.observability import (
+    RequestContextMiddleware,
+    ServingMetrics,
+    instrument,
+)
 from brent_forecast.api.schemas import (
     ErrorResponse,
     HealthResponse,
@@ -109,8 +116,20 @@ def create_app(settings: Settings | None = None, *, loader: Loader | None = None
         lifespan=lifespan,
         license_info={"name": "MIT", "identifier": "MIT"},
     )
+    metrics = ServingMetrics(service)
     app.state.service = service
+    app.state.metrics = metrics
     app.add_exception_handler(RequestValidationError, _request_validation_handler)
+    instrument(app, metrics)
+    app.add_middleware(RequestContextMiddleware)  # outermost: ids cover every log and response
+
+    def timed(served: ServedModel, call: Callable[[], Prediction]) -> Prediction:
+        start = time.perf_counter()
+        prediction = call()
+        metrics.observe(
+            served.alias, prediction.direction, prediction.source, time.perf_counter() - start
+        )
+        return prediction
 
     def served_or_503() -> ServedModel:
         served = service.get()
@@ -214,8 +233,11 @@ def create_app(settings: Settings | None = None, *, loader: Loader | None = None
     def _predict_latest(served: ServedModel) -> Prediction:
         try:
             as_of, features, source = latest.get()
-            return predict_features(
-                settings, served.model, features, as_of=as_of.date(), source=source
+            return timed(
+                served,
+                lambda: predict_features(
+                    settings, served.model, features, as_of=as_of.date(), source=source
+                ),
             )
         except (FileNotFoundError, ValueError) as exc:  # DataValidationError is a ValueError
             raise HTTPException(
@@ -229,8 +251,11 @@ def create_app(settings: Settings | None = None, *, loader: Loader | None = None
             _check_columns(features, served.columns)
         frame = pd.DataFrame([features], columns=list(served.columns or features))
         try:
-            return predict_features(
-                settings, served.model, frame, as_of=request.as_of, source="request"
+            return timed(
+                served,
+                lambda: predict_features(
+                    settings, served.model, frame, as_of=request.as_of, source="request"
+                ),
             )
         except DataValidationError as exc:
             raise _validation_error(["features"], str(exc), "value_error") from exc
