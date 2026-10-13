@@ -94,6 +94,12 @@ serving:
   live: true                # "latest day" predictions use data/live/ when it exists
   reload_interval_seconds: 30
 
+# `brent dashboard`: Streamlit demo. It reads results/ and data/ directly and asks the API for the
+# prediction of the day (BRENT_DASHBOARD__API_URL=http://api:8000 in docker-compose).
+dashboard:
+  api_url: http://127.0.0.1:8000
+  timeout_seconds: 5
+
 # `brent explain`: every listed model is refitted on the development period and explained on the
 # out-of-sample period (permutation importance on raw features, SHAP on the model inputs).
 explain:
