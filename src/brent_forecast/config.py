@@ -232,6 +232,14 @@ class TrackingSettings(_Section):
     registered_model: str = Field(min_length=1)
 
 
+class ServingSettings(_Section):
+    """HTTP inference API (``brent serve``)."""
+
+    alias: str = Field(min_length=1)
+    live: bool
+    reload_interval_seconds: float = Field(ge=0.0)
+
+
 class ExplainSettings(_Section):
     """Model explanations written by ``brent explain``."""
 
@@ -299,6 +307,7 @@ class Settings(BaseSettings):
     explain: ExplainSettings
     tracking: TrackingSettings
     live: LiveSettings
+    serving: ServingSettings
     models: ModelsSettings
 
     @classmethod

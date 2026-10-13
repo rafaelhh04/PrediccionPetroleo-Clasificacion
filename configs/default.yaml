@@ -86,6 +86,14 @@ live:
     dxy_index: {provider: yahoo, symbol: DX-Y.NYB}      # ICE US Dollar Index
     vix: {provider: fred, symbol: VIXCLS}               # CBOE VIX close (FRED)
 
+# `brent serve`: HTTP inference API (FastAPI). The model behind `alias` is loaded from the registry
+# at start-up; while none is available (e.g. before the first `brent report`), /health answers 503
+# and loading is retried at most every `reload_interval_seconds`.
+serving:
+  alias: champion           # champion | challenger
+  live: true                # "latest day" predictions use data/live/ when it exists
+  reload_interval_seconds: 30
+
 # `brent explain`: every listed model is refitted on the development period and explained on the
 # out-of-sample period (permutation importance on raw features, SHAP on the model inputs).
 explain:

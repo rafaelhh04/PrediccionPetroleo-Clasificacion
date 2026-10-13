@@ -304,6 +304,21 @@ def predict(
     typer.echo(path.read_text(encoding="utf-8"), nl=False)
 
 
+@app.command()
+def serve(
+    ctx: typer.Context,
+    host: Annotated[str, typer.Option("--host", help="Interface to bind.")] = "127.0.0.1",
+    port: Annotated[int, typer.Option("--port", min=1, max=65535, help="TCP port.")] = 8000,
+) -> None:
+    """Serve the registered model over HTTP (FastAPI; docs at /docs)."""
+    import uvicorn
+
+    from brent_forecast.api import create_app
+
+    # log_config=None keeps the logging configured by --log-level for uvicorn's loggers too.
+    uvicorn.run(create_app(_settings(ctx)), host=host, port=port, log_config=None)
+
+
 @data_app.command("verify")
 def data_verify(ctx: typer.Context) -> None:
     """Verify the SHA-256 checksums of the local data files."""

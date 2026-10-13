@@ -126,3 +126,13 @@ def test_lightgbm_is_tuned_with_optuna() -> None:
     assert settings.models.lightgbm.space
     assert not settings.models.lightgbm.grid
     assert settings.tuning.timeout is None  # reproducible by default
+
+
+def test_serving_alias_can_be_switched_by_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert load_settings(CONFIG_PATH).serving.alias == "champion"
+
+    monkeypatch.setenv("BRENT_SERVING__ALIAS", "challenger")
+
+    serving = load_settings(CONFIG_PATH).serving
+    assert serving.alias == "challenger"
+    assert serving.live is True
