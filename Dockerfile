@@ -14,7 +14,7 @@
 FROM ghcr.io/astral-sh/uv:0.11.32 AS uv
 
 # ── builder ───────────────────────────────────────────────────
-FROM python:3.12-slim-trixie AS builder
+FROM python:3.14-slim-trixie AS builder
 COPY --from=uv /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -40,7 +40,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable --extra dashboard
 
 # ── base of the final images ──────────────────────────────────
-FROM python:3.12-slim-trixie AS base
+FROM python:3.14-slim-trixie AS base
 
 LABEL org.opencontainers.image.source="https://github.com/rafaelhh04/PrediccionPetroleo-Clasificacion" \
       org.opencontainers.image.licenses="MIT"
