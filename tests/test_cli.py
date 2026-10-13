@@ -411,3 +411,26 @@ def test_data_ingest_reports_failures(
 
     assert result.exit_code == 1
     assert "Ingestion failed: network blocked" in result.output
+
+
+# ── serving ───────────────────────────────────────────────────
+
+
+def test_serve_runs_uvicorn_with_the_api(
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fastapi import FastAPI
+
+    calls: dict[str, object] = {}
+
+    def fake_run(app: object, **kwargs: object) -> None:
+        calls.update(kwargs, app=app)
+
+    monkeypatch.setattr("uvicorn.run", fake_run)
+    config = _write_config(settings, tmp_path / "config.yaml")
+
+    result = invoke(["--config", str(config), "serve", "--host", "0.0.0.0", "--port", "9000"])
+
+    assert result.exit_code == 0, result.output
+    assert isinstance(calls["app"], FastAPI)
+    assert (calls["host"], calls["port"], calls["log_config"]) == ("0.0.0.0", 9000, None)
