@@ -179,7 +179,7 @@ Si el tiempo es limitado, el **mínimo viable de portfolio** es: Fases 1 + 2 + 3
 | 2 Calidad | ✅ | `test/unit-test-suite` (#9), `test/leakage-guards` (#10), `test/mlp-gradient-check` (#11), `ci/github-actions` (#12), `chore/repo-governance` | 130 tests, 98 % cobertura de ramas, gradient check ≤ 2.5e-9, CI 3.12/3.13 verde. Protección de `main` versionada como ruleset (requiere importarla). Ver notas de cierre ↓ |
 | 3 Rigor ML | ✅ | `fix/label-last-row` (#15), `refactor/sklearn-pipelines` (#16), `feat/walk-forward-validation` (#17), `feat/baselines` (#18), `feat/statistical-evaluation` (#19), `feat/financial-backtest` (#20), `feat/feature-engineering-v2` (#21), `feat/gradient-boosting-optuna` (#22), `feat/model-explainability` (#23), `docs/model-card` (#24) | Pipelines sklearn + walk-forward purgado (10 ventanas OOS) + 4 baselines + `brent report` (IC block bootstrap, DeLong+Holm, binomial, Brier, backtest) + LightGBM/Optuna + `brent explain` (SHAP, permutation). Conclusión: sin señal. 422 tests, 99 % cobertura. Ver notas de cierre ↓ |
 | 4 MLOps | ✅ | `feat/experiment-tracking` (#25), `feat/data-versioning` (#26), `feat/data-validation` (#27), `feat/data-ingestion-live` (#28), `fix/dvc-reproducible-lock` (#29), `docs/phase-4-closing` (#30) | MLflow (runs anidados, artefactos, skops, registry con alias `champion`/`challenger` y regla de promoción testeada) + DVC (6 etapas, `dvc.lock`, remote local) + Pandera (5 contratos) + ingesta Yahoo/FRED + `brent predict`. Campeón = baseline de persistencia (ningún modelo la supera). 516 tests, 98.5 % cobertura. Ver notas de cierre ↓ |
-| 5 | ⏳ pendiente | | |
+| 5 Serving | ✅ | `feat/inference-api` (#32), `test/api-tests` (#33), `feat/docker` (#34), `feat/observability` (#39), `feat/demo-dashboard` (#41), `chore/dependabot-docker-python` (#42), `docs/phase-5-closing` | FastAPI (`/predict`, `/health`, `/model-info`) servida desde el registry por alias, contrato = firma MLflow + Pandera, 422/503 + snapshot OpenAPI + Locust (p95 72 ms nominal) + Docker multi-stage (API y dashboard, no root, HEALTHCHECK) + compose (API, dashboard, MLflow, trainer) + Trivy en CI + Prometheus/logs JSON/request id + Streamlit con aviso de datos sintéticos. 587 tests, 98.1 % cobertura. Ver notas de cierre ↓ |
 | 6 | ⏳ pendiente | | |
 | 7 | ⏳ pendiente | | |
 
@@ -402,6 +402,84 @@ campeón es el **baseline de persistencia** y la regresión logística queda com
 mezcla stderr). `dvc.lock` se excluye de los hooks de espacios en blanco (lo genera DVC). Cambiar un módulo
 listado como dependencia invalida la etapa aunque el resultado sea idéntico: DVC re-ejecuta esa etapa pero
 salta las siguientes si el hash de su salida no cambia.
+
+### Notas de cierre — Fase 5
+
+**Resultado.** El modelo del registry se sirve, se observa y se demuestra en contenedores:
+`docker compose --profile train run --rm trainer` (train → report → explain dentro de compose) y
+`docker compose up -d` levantan la API (`:8000`), el dashboard (`:8501`) y el servidor MLflow (`:5000`)
+sobre los mismos volúmenes. La API carga `models:/brent-direction-classifier@champion` al arrancar y
+valida cada petición contra la firma del modelo y `INFERENCE_SCHEMA`. El dashboard pide la predicción a la
+API y advierte de forma visible que los datos son **sintéticos**. Las métricas de ML no cambian: el campeón
+sigue siendo el baseline de persistencia y la regresión logística, el challenger.
+
+**Verificación del DoD.**
+- `docker compose up -d` → `api`, `dashboard` y `mlflow` *healthy*; `GET /health` → 200
+  `{"status":"ok","model_loaded":true,"alias":"champion","version":"1"}`; `POST /predict` → 200 con la
+  predicción del campeón (`persistence`); entrada inválida (`"vix": "high"`) → 422; `/metrics` expone
+  `brent_model_loaded 1`, `brent_model_info{candidate="persistence",kind="baseline"}` y
+  `brent_predictions_total`; dashboard `/_stcore/health` → ok; UI de MLflow → 200 con el registry.
+- CI: el job `docker` construye las dos imágenes, valida el compose, hace smoke tests (uid 10001, liveness
+  200, readiness 503 sin registry, `/metrics`, `X-Request-ID`, salud de Streamlit) y pasa el *gate* de
+  Trivy 0.75.0 (CRITICAL con corrección → falla): 0 en ambas imágenes. En local, 0 CRITICAL; los 44 HIGH son
+  de paquetes Debian 13 sin corrección, y hay 0 en paquetes Python.
+- Tests de API en CI (TestClient + registry MLflow real en `tmp_path` + contrato OpenAPI con snapshot).
+  p95 documentado en README (Locust, un proceso uvicorn, 4 cores): **72 ms** a ~10 req/s (p99 120 ms);
+  saturación a ~39 req/s con p95 790 ms. Una predicción aislada cuesta 25–40 ms, ~22 ms de ellos la
+  validación Pandera.
+- CI verde en 3.12 y 3.13 en los seis PRs; 587 tests (+1 slow), cobertura de ramas 98.1 %; `mypy --strict` sin
+  `type: ignore` en `src/`; `pre-commit run --all-files` verde; 173 commits en `main`, todos de rafaelhh04, sin trailers ni menciones a asistentes.
+
+**Decisiones y desviaciones respecto al plan.**
+- Contrato de entrada = **firma MLflow** del modelo registrado (`get_model_info(...).signature`). El campeón
+  (persistencia) no tiene `feature_names_in_`. No se tocó `tracking.py`, que es dependencia de la etapa
+  `train` de DVC y obligaría a regenerar `dvc.lock` sin el remote.
+- `predict_features` es el único camino de predicción (CLI y API). La fila del último día se cachea hasta
+  que cambia el *mtime* o el tamaño de algún fichero de datos.
+- Sin modelo, la API arranca igualmente (readiness 503 con el motivo) y reintenta cada
+  `serving.reload_interval_seconds`: el HEALTHCHECK la hace recoger el campeón sin reinicio. Liveness
+  separada en `/health/live`.
+- 422 con manejador propio (`loc`/`msg`/`type`): el de FastAPI devuelve el `input`, y un `NaN` en el JSON
+  provocaba un 500 al serializarlo.
+- Docker: base `python:3.12-slim-trixie` (Debian 13) + `libgomp1` (LightGBM). Las imágenes base van en los
+  `FROM` para que Dependabot las siga (#42 evita saltos de *minor* de Python). Trivy se ejecuta desde su imagen
+  fijada (`aquasec/trivy:0.75.0`) en lugar de una *action* de terceros. `mlruns/` y `results/` son volúmenes
+  montados en la misma ruta en todos los contenedores, porque MLflow guarda rutas absolutas de artefactos:
+  el registry se crea dentro de compose (`trainer`), no en el host.
+- Dos imágenes desde un Dockerfile: `runtime` (API, *target* por defecto) y `dashboard` (con el extra
+  `dashboard`), así la imagen de la API no lleva Streamlit.
+- Observabilidad sin dependencias extra para los logs (formateador JSON propio) y con un `CollectorRegistry`
+  por app. Las métricas del modelo las lee del servicio un *collector*: el servicio no conoce Prometheus.
+  `/metrics` queda fuera del contrato OpenAPI.
+- Dashboard: cliente HTTP con `urllib` (sin dependencia nueva). La procedencia se decide con
+  `matches_recorded_checksums` de `metrics.json`: solo *real* si coinciden los checksums de Kaggle.
+
+**Deuda técnica / pendientes.**
+- **Datos reales**: siguen bloqueados en el entorno (Kaggle, Yahoo, FRED → 403). Sin cambios respecto a la
+  Fase 4.
+- **Tablas de métricas desactualizadas**: reentrenando con el mismo dataset sintético (persistencia idéntica,
+  AUC 0.5073) salen LR 0.532 (README: 0.536), RF 0.519 (0.510), MLP 0.510 (0.501), LightGBM 0.512 (0.450) y
+  Sharpe LR 1.16 (1.11). Host y contenedor coinciden entre sí, y esta fase no cambió ninguna versión de ML
+  ni código de modelos. La diferencia viene de fases anteriores (versiones del lockfile o cambios de la
+  Fase 4) y hay que refrescar las tablas sintéticas del README y la model card, o sustituirlas por las reales.
+- Imagen de la API grande: ~390 MB comprimida / 1.7 GB en disco (MLflow servidor, SHAP/numba, LightGBM,
+  SciPy). Separar extras `serve`/`train` o usar `mlflow-skinny` + `pyfunc`.
+- Un proceso uvicorn por contenedor (~40 req/s). Escalar con réplicas; con varios workers, modo
+  multiproceso de Prometheus.
+- Starlette 1.7 prefiere `httpx2` para el TestClient: se mantiene `httpx` con el aviso filtrado (añadir
+  `httpx2` no estaba permitido en este entorno).
+- La cobertura no atribuye `dashboard/app.py` (12 líneas) aunque `AppTest.from_file` lo ejecuta.
+- PRs de Dependabot abiertos sin revisar: #14, #35 (uv 0.13), #36 (Python 3.14, cerrar tras #42), #37, #38, #40.
+- Pendientes del usuario: secret `CODECOV_TOKEN`, importar `.github/rulesets/protect-main.json` y permitir
+  los dominios de Kaggle/Yahoo/FRED en la red del entorno.
+
+**Lecciones de proceso.** Docker funciona en el entorno remoto (`dockerd` se arranca a mano), pero la red
+bloquea Docker Hub (429), GHCR (403) y `deb.debian.org`: para validar en local sirve `mirror.gcr.io`, una
+base derivada con la CA del proxy pasada con `--build-context` y un Dockerfile local sin `apt`. El de verdad
+se valida en CI. `pkill -f "<patrón>"` mata la propia shell si el patrón aparece en el comando: hay que usar
+`pkill -f "[p]atrón"`. `AppTest.from_function` copia el código de la función, así que no puede usar nombres
+importados en las anotaciones. Activar un ecosistema de Dependabot abre PRs al instante, lo que desplaza la
+numeración de los PRs propios.
 
 ---
 
