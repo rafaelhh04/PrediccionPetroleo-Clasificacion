@@ -133,6 +133,9 @@ market features only.
 API validates every request against the model's input contract (the feature names of its MLflow
 signature) and `INFERENCE_SCHEMA`, and `GET /model-info` returns the candidate and the promotion reason,
 so a client can always tell when the served "model" is a naive baseline.
+The Streamlit demo (`brent dashboard`) shows the same information to non-technical users. It states
+whether the results come from real (checksum-verified) or synthetic data, and when the champion is a
+baseline.
 
 ## Quantitative safeguards
 

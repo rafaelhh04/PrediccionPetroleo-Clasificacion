@@ -194,18 +194,33 @@ Una predicción aislada tarda 25–40 ms (≈22 ms son la validación Pandera); 
   `brent_model_inference_seconds{alias}` (validación + `predict_proba`), `brent_model_loaded{alias}`,
   `brent_model_info{alias,version,candidate,kind}` y `brent_model_load_failures_total{alias}`.
 
+## Dashboard de demostración (Streamlit)
+
+`brent dashboard` (extra `dashboard`: `uv sync --extra dashboard`) abre en `:8501` una página con:
+
+- un **aviso de procedencia de los datos**: solo dice *datos reales* si los ficheros coinciden con los
+  checksums de Kaggle registrados (`metrics.json`); si no, advierte de que los resultados son sintéticos;
+- la **predicción del día** pedida a la API (`dashboard.api_url`), con versión y candidato servidos y un aviso
+  cuando el campeón es un *baseline*;
+- pestañas de **precios** (Brent y WTI), **informe estadístico** (AUC con IC, ΔAUC, p de Holm, ROC,
+  fiabilidad), **backtest** tras costes y **explicaciones** SHAP (importancias, beeswarm y waterfall).
+
+Si falta un artefacto, la página indica el comando que lo genera; sin API muestra el error y mantiene el
+resto. Se prueba sin navegador con `AppTest` de Streamlit.
+
 ## Contenedores (Docker)
 
 `Dockerfile` *multi-stage*: el `builder` instala con uv solo las dependencias de **runtime** del lockfile
 (`uv sync --frozen --no-dev`) y el `runtime` (`python:3.12-slim-trixie`) copia únicamente ese entorno y
 `configs/`. Se ejecuta con el usuario sin privilegios `brent` (uid 10001) y declara un `HEALTHCHECK` sobre
-`/health`. `docker-compose.yml` levanta la API (`:8000`) y un servidor MLflow con la UI (`:5000`) sobre el
-mismo registry, más un servicio `trainer` (perfil `train`) que ejecuta `brent train && brent report`:
+`/health`. `docker-compose.yml` levanta la API (`:8000`), el dashboard (`:8501`, *target* `dashboard`) y un
+servidor MLflow con la UI (`:5000`) sobre el mismo registry, más un servicio `trainer` (perfil `train`) que
+ejecuta `brent train && brent report && brent explain`:
 
 ```bash
 docker compose build
 docker compose --profile train run --rm trainer     # una vez: entrena, informe, registra el campeón
-docker compose up -d                                # API :8000/docs, MLflow :5000
+docker compose up -d                                # API :8000/docs, dashboard :8501, MLflow :5000
 ```
 
 `mlruns/` y `results/` son volúmenes con nombre montados en la misma ruta en todos los contenedores (las
@@ -269,6 +284,7 @@ de 50 estimaciones ruidosas) y cayó a 0.450 fuera de muestra.
 │   ├── pipeline.py             # orquestación del entrenamiento
 │   ├── predict.py              # predicción del día siguiente (CLI y API)
 │   ├── api/                    # servicio de inferencia FastAPI (`brent serve`)
+│   ├── dashboard/              # demo en Streamlit (`brent dashboard`)
 │   ├── data/                   # descarga de Kaggle + checksums, carga y merge
 │   ├── features/               # label, features, VIF, split, winsorización, escalado
 │   ├── models/                 # LogReg, SVM, RF, MLP NumPy, LightGBM, baselines y tuning
@@ -276,7 +292,7 @@ de 50 estimaciones ruidosas) y cayó a 0.450 fuera de muestra.
 ├── tests/                      # tests unitarios, de leakage, gradient check y propiedades
 ├── .github/                    # CI, Dependabot, plantillas, CODEOWNERS, ruleset
 ├── Dockerfile / .dockerignore  # imagen de inferencia multi-stage (uv, no root, HEALTHCHECK)
-├── docker-compose.yml          # API + servidor MLflow (+ trainer puntual)
+├── docker-compose.yml          # API + dashboard + servidor MLflow (+ trainer puntual)
 ├── Makefile
 └── pyproject.toml / uv.lock
 ```
