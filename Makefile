@@ -1,6 +1,6 @@
 # Developer shortcuts. Every target runs inside the uv-managed environment.
 .DEFAULT_GOAL := help
-.PHONY: help install lint format typecheck test coverage test-all data train serve load-test clean
+.PHONY: help install lint format typecheck test coverage test-all data train serve load-test docker-build docker-train docker-up clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -42,6 +42,15 @@ serve: ## Serve the registered champion over HTTP (docs at /docs)
 load-test: ## Load-test a running API (`make serve`) with Locust; CSVs in results/load/
 	uv run --group load locust -f tests/load/locustfile.py --headless --host $(API_URL) \
 		--users 10 --spawn-rate 5 --run-time 60s --csv results/load/locust --only-summary
+
+docker-build: ## Build the inference image (brent-forecast:latest)
+	docker compose build
+
+docker-train: ## Train, report and register the champion inside the compose stack
+	docker compose --profile train run --rm trainer
+
+docker-up: ## Start the API (:8000) and the MLflow server (:5000) in the background
+	docker compose up -d
 
 clean: ## Remove caches and generated results
 	rm -rf .ruff_cache .mypy_cache .pytest_cache .coverage htmlcov results
