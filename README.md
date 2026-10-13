@@ -355,6 +355,26 @@ curl -s -X POST localhost:8000/predict -H 'content-type: application/json' \
 - **Response.** `{"as_of", "proba_up", "direction", "threshold", "source", "model": {"alias", "version",
   "candidate"}}`, where `source` is `live`, `snapshot` or `request`.
 
+**Tests.** `tests/test_api.py` covers the endpoints and errors with an in-memory model.
+`tests/test_api_registry.py` serves the champion and the challenger from a real MLflow registry in a
+temporary directory (SQLite, no network). `tests/test_api_contract.py` compares the OpenAPI schema with the
+reviewed snapshot `tests/snapshots/openapi.json`: any change to a path, status code or field fails until the
+snapshot is regenerated on purpose (`UPDATE_SNAPSHOTS=1 uv run pytest tests/test_api_contract.py`).
+
+**Load test** (Locust, `tests/load/locustfile.py`, outside the pytest suite: `make serve` then
+`make load-test`). The mix is 4:4:1:1:1 latest-day predictions, client-feature predictions, `/health`,
+`/model-info` and invalid requests (which must be 422). Measured with a single uvicorn process serving the
+champion (persistence baseline) on the synthetic data, with Locust on the same 4-core machine:
+
+| Profile | Throughput | Failures | p50 | p95 | p99 | p95 `POST /predict` |
+|---------|-----------:|---------:|----:|----:|----:|--------------------:|
+| Nominal: 10 users, 0.5–1.5 s think time | 9.9 req/s | 0 % | 28 ms | **72 ms** | 120 ms | 76–99 ms |
+| Saturation: 20 users, 0.05–0.2 s think time | 38.7 req/s | 0 % | 380 ms | 790 ms | 1100 ms | 840–850 ms |
+
+An isolated prediction takes 25–40 ms, and about 22 ms of that is the Pandera validation of the row. One
+process saturates at about 40 req/s (the GIL), so latency beyond that is queueing. Scale out with more
+processes or replicas rather than threads.
+
 ### Explainability
 
 `brent explain` (`evaluation/explain.py`) refits each model listed in `explain.models` on the development

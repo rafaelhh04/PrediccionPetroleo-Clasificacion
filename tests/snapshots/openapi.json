@@ -1,0 +1,582 @@
+{
+  "components": {
+    "schemas": {
+      "ErrorResponse": {
+        "additionalProperties": false,
+        "description": "Error returned with a 503 (no model, no data) or a 500.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "additionalProperties": false,
+        "description": "Readiness of the service: a model must be loaded to serve predictions.",
+        "properties": {
+          "alias": {
+            "title": "Alias",
+            "type": "string"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why no model is loaded.",
+            "title": "Detail"
+          },
+          "model_loaded": {
+            "title": "Model Loaded",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "status",
+          "model_loaded",
+          "alias"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "LivenessResponse": {
+        "additionalProperties": false,
+        "description": "The process is up (says nothing about the model).",
+        "properties": {
+          "status": {
+            "const": "ok",
+            "default": "ok",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "LivenessResponse",
+        "type": "object"
+      },
+      "ModelInfoResponse": {
+        "additionalProperties": false,
+        "description": "The served model, why it was promoted and its input contract.",
+        "properties": {
+          "alias": {
+            "title": "Alias",
+            "type": "string"
+          },
+          "candidate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate"
+          },
+          "features": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Expected feature names, in order (null if the model does not record them).",
+            "title": "Features"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`model` or `baseline`.",
+            "title": "Kind"
+          },
+          "loaded_at": {
+            "format": "date-time",
+            "title": "Loaded At",
+            "type": "string"
+          },
+          "promotion_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promotion Reason"
+          },
+          "registered_model": {
+            "title": "Registered Model",
+            "type": "string"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "number"
+          },
+          "training_run": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "MLflow run id of the training run.",
+            "title": "Training Run"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "registered_model",
+          "alias",
+          "version",
+          "candidate",
+          "kind",
+          "promotion_reason",
+          "training_run",
+          "loaded_at",
+          "threshold",
+          "features"
+        ],
+        "title": "ModelInfoResponse",
+        "type": "object"
+      },
+      "ModelRef": {
+        "additionalProperties": false,
+        "description": "Registry entry that produced a prediction.",
+        "properties": {
+          "alias": {
+            "description": "Registry alias (`champion` or `challenger`).",
+            "title": "Alias",
+            "type": "string"
+          },
+          "candidate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Candidate key, e.g. `persistence`.",
+            "title": "Candidate"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Model version behind the alias.",
+            "title": "Version"
+          }
+        },
+        "required": [
+          "alias",
+          "version",
+          "candidate"
+        ],
+        "title": "ModelRef",
+        "type": "object"
+      },
+      "PredictRequest": {
+        "additionalProperties": false,
+        "description": "Features of one day, or nothing to predict from the latest available day.",
+        "examples": [
+          {},
+          {
+            "as_of": "2026-03-12",
+            "features": {
+              "bb_pct_b": 0.62,
+              "bb_width": 0.071,
+              "brent_volatility_30d": 1.9,
+              "brent_volatility_7d": 1.6,
+              "brent_wti_spread": 4.1,
+              "dow_cos": -0.9,
+              "dow_sin": 0.43,
+              "dxy_index": 103.2,
+              "dxy_ret_1": 0.0008,
+              "dxy_ret_5": -0.0021,
+              "event_flag_binary": 0.0,
+              "gpr_change": -2.5,
+              "high_severity_flag": 0.0,
+              "lag_ret_1": 0.0042,
+              "lag_ret_3": -0.011,
+              "lag_ret_7": 0.019,
+              "macd": 0.31,
+              "macd_hist": 0.05,
+              "mom_21": 0.024,
+              "mom_63": -0.035,
+              "month_cos": 0.87,
+              "month_sin": 0.5,
+              "rsi_14": 55.2,
+              "vix": 17.4,
+              "vix_chg_1": -0.012,
+              "vix_chg_5": 0.031,
+              "vol_ratio": 0.84
+            }
+          }
+        ],
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Day the features describe (informative; only with `features`).",
+            "title": "As Of"
+          },
+          "features": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Every feature the model expects (see `GET /model-info`), by name. Omit it to use the most recent day of the data available to the service.",
+            "title": "Features"
+          }
+        },
+        "title": "PredictRequest",
+        "type": "object"
+      },
+      "PredictResponse": {
+        "additionalProperties": false,
+        "description": "Probability that Brent closes higher on the trading day after `as_of`.",
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last observed day (null if the client sent none).",
+            "title": "As Of"
+          },
+          "direction": {
+            "description": "`up` when `proba_up >= threshold`.",
+            "enum": [
+              "up",
+              "down/flat"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "model": {
+            "$ref": "#/components/schemas/ModelRef"
+          },
+          "proba_up": {
+            "description": "P(next-day close > today's close).",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Proba Up",
+            "type": "number"
+          },
+          "source": {
+            "description": "Where the features came from: ingested data, the raw snapshot or the client.",
+            "enum": [
+              "live",
+              "snapshot",
+              "request"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "threshold": {
+            "description": "Decision threshold (`backtest.threshold`).",
+            "title": "Threshold",
+            "type": "number"
+          }
+        },
+        "required": [
+          "as_of",
+          "proba_up",
+          "direction",
+          "threshold",
+          "source",
+          "model"
+        ],
+        "title": "PredictResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "\nNext-day direction of Brent crude oil (up vs. down/flat), served from the MLflow\nmodel registry. The model is the registry alias configured in `serving.alias`\n(`champion` by default), which can be a naive **baseline**: a model is only\npromoted if it beats the best baseline with statistical significance.\n\n**Not investment advice.** The evaluation found no predictive signal (see the model card).\n",
+    "license": {
+      "identifier": "MIT",
+      "name": "MIT"
+    },
+    "summary": "Next-day Brent crude oil direction classifier.",
+    "title": "Brent direction API"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/health": {
+      "get": {
+        "description": "200 when the model is loaded and predictions can be served, 503 otherwise.",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Readiness: is a model loaded?",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/health/live": {
+      "get": {
+        "description": "Answer 200 while the server is up (use `/health` for readiness).",
+        "operationId": "liveness_health_live_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LivenessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Liveness: is the process up?",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/model-info": {
+      "get": {
+        "description": "Registry alias, version, candidate, promotion reason and expected feature names.",
+        "operationId": "model_info_model_info_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelInfoResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "The served model and its input contract",
+        "tags": [
+          "model"
+        ]
+      }
+    },
+    "/predict": {
+      "post": {
+        "description": "Predict from the features in the body, or from the latest day if none are sent.\n\nWith `features`, every expected feature (see `GET /model-info`) must be present and\nno other: names are checked against the model's input contract.",
+        "operationId": "predict_predict_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PredictRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PredictResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Predict the next-day direction",
+        "tags": [
+          "model"
+        ]
+      }
+    }
+  }
+}
