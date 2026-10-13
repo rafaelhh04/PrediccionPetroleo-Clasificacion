@@ -93,6 +93,10 @@ jobs:
           # No registry in the image: the API is up but not ready (503) and says why.
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' localhost:8000/health)" = "503"
           curl --silent localhost:8000/health
+          # Observability: Prometheus metrics and the request id echoed back.
+          curl --silent --fail localhost:8000/metrics | grep '^brent_model_loaded{alias="champion"} 0.0'
+          curl --silent --include --header 'X-Request-ID: ci-smoke' localhost:8000/health/live \
+            | grep --ignore-case '^x-request-id: ci-smoke'
           docker inspect --format '{{json .Config.Healthcheck}}' api
       - name: Container logs
         if: always()
