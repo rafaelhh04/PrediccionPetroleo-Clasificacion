@@ -35,3 +35,8 @@ updates:
       day: "monday"
     commit-message:
       prefix: "chore(docker)"
+    ignore:
+      # The image must run the Python versions CI tests (3.12/3.13): only patch/OS updates
+      # of python:3.12-slim-*; moving to a new minor is a deliberate change.
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
