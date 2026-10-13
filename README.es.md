@@ -182,6 +182,26 @@ un único proceso uvicorn y Locust en la misma máquina de 4 cores:
 Una predicción aislada tarda 25–40 ms (≈22 ms son la validación Pandera); un proceso se satura en
 ~40 req/s (GIL): para escalar, más procesos o réplicas.
 
+## Contenedores (Docker)
+
+`Dockerfile` *multi-stage*: el `builder` instala con uv solo las dependencias de **runtime** del lockfile
+(`uv sync --frozen --no-dev`) y el `runtime` (`python:3.12-slim-trixie`) copia únicamente ese entorno y
+`configs/`. Se ejecuta con el usuario sin privilegios `brent` (uid 10001) y declara un `HEALTHCHECK` sobre
+`/health`. `docker-compose.yml` levanta la API (`:8000`) y un servidor MLflow con la UI (`:5000`) sobre el
+mismo registry, más un servicio `trainer` (perfil `train`) que ejecuta `brent train && brent report`:
+
+```bash
+docker compose build
+docker compose --profile train run --rm trainer     # una vez: entrena, informe, registra el campeón
+docker compose up -d                                # API :8000/docs, MLflow :5000
+```
+
+`mlruns/` y `results/` son volúmenes con nombre montados en la misma ruta en todos los contenedores (las
+rutas de los artefactos que registra el trainer son válidas en la API y en MLflow). `data/` se monta en solo
+lectura. En CI se construye la imagen, se valida el compose, se hace un smoke test (usuario no root,
+liveness 200, readiness 503 sin registry) y se escanea con **Trivy** (falla si hay vulnerabilidades
+CRITICAL con corrección disponible).
+
 ## Resultados (AUC-ROC)
 
 > **¿Qué cifras son reales?** Solo la primera tabla (ejecución antigua del código original con los datos de
@@ -243,6 +263,8 @@ de 50 estimaciones ruidosas) y cayó a 0.450 fuera de muestra.
 │   └── evaluation/             # métricas, gráficas, curvas de aprendizaje, evaluación final
 ├── tests/                      # tests unitarios, de leakage, gradient check y propiedades
 ├── .github/                    # CI, Dependabot, plantillas, CODEOWNERS, ruleset
+├── Dockerfile / .dockerignore  # imagen de inferencia multi-stage (uv, no root, HEALTHCHECK)
+├── docker-compose.yml          # API + servidor MLflow (+ trainer puntual)
 ├── Makefile
 └── pyproject.toml / uv.lock
 ```

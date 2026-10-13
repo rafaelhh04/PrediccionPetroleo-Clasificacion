@@ -375,6 +375,41 @@ An isolated prediction takes 25–40 ms, and about 22 ms of that is the Pandera 
 process saturates at about 40 req/s (the GIL), so latency beyond that is queueing. Scale out with more
 processes or replicas rather than threads.
 
+### Containers (Docker)
+
+`Dockerfile` (multi-stage): a `builder` stage installs the locked **runtime** dependencies with uv
+(`uv sync --frozen --no-dev`, no dev or load-test groups) and the project as a regular package. The
+`runtime` stage (`python:3.12-slim-trixie`) copies only that virtual environment and `configs/`. It runs as
+the unprivileged user `brent` (uid 10001) and declares a `HEALTHCHECK` on `/health`. `.dockerignore` keeps
+the build context to `pyproject.toml`, `uv.lock`, `src/`, `configs/`, `README.md` and `LICENSE`, so no data,
+results or credentials can reach the image.
+
+`docker-compose.yml` runs the API (`:8000`) and an MLflow tracking server with the UI (`:5000`) on the same
+registry. A one-off `trainer` service (profile `train`) runs `brent train && brent report`:
+
+```bash
+uv run brent data download                          # data/ is mounted read-only into the containers
+docker compose build
+docker compose --profile train run --rm trainer     # ~12 min: train, report, register the champion
+docker compose up -d                                # API http://localhost:8000/docs, MLflow http://localhost:5000
+curl -s localhost:8000/health                       # {"status": "ok", "model_loaded": true, ...}
+```
+
+- **Volumes.** `mlruns/` (SQLite store + artefacts) and `results/` are named volumes mounted at the same
+  path (`/app/...`) in every container, so the artefact locations recorded by the trainer resolve in the API
+  and in the MLflow server. A registry created on the host records host paths, so create it inside compose.
+- **Readiness.** Before the first `brent report` the API is up but answers 503. The health probe keeps
+  retrying, so it picks up the champion without a restart.
+- **Settings.** `BRENT_*` variables work as everywhere else, e.g. `BRENT_SERVING__ALIAS=challenger docker
+  compose up -d`.
+- **CI.** The `docker` job builds the image, validates the compose file and smoke-tests the container
+  (non-root user, liveness 200, readiness 503 without a registry). It then scans the image with **Trivy**:
+  a HIGH/CRITICAL report for information, and a gate that fails on any CRITICAL vulnerability with a fix
+  available. Dependabot also tracks the base images.
+- **Size.** The image is about 390 MB compressed (1.7 GB on disk) because the runtime dependencies include
+  the training stack (MLflow server, SHAP/numba, LightGBM, SciPy). Splitting them into serving and training
+  extras is a known follow-up.
+
 ### Explainability
 
 `brent explain` (`evaluation/explain.py`) refits each model listed in `explain.models` on the development
@@ -481,6 +516,8 @@ Effect of the v2 features (same protocol; v1 = 14 features, v2 = 29 before the V
 │   └── evaluation/             # metrics, plots, learning curves, final test evaluation
 ├── tests/                      # unit, leakage-guard, gradient-check and property tests
 ├── .github/                    # CI workflow, Dependabot, templates, CODEOWNERS, ruleset
+├── Dockerfile / .dockerignore  # multi-stage inference image (uv, non-root, HEALTHCHECK)
+├── docker-compose.yml          # API + MLflow server (+ one-off trainer)
 ├── Makefile
 └── pyproject.toml / uv.lock
 ```
