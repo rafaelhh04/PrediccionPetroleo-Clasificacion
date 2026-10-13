@@ -56,3 +56,19 @@ def test_numeric_level_is_accepted() -> None:
 def test_unknown_level_is_rejected() -> None:
     with pytest.raises(ValueError, match="Unknown log level"):
         setup_logging("VERBOSE")
+
+
+def test_json_console_format(tmp_path: Path) -> None:
+    from brent_forecast.logging_config import JsonFormatter
+
+    log_file = tmp_path / "run.log"
+    setup_logging("INFO", log_file=log_file, fmt="json")
+
+    console, file_handler = logging.getLogger().handlers
+    assert isinstance(console.formatter, JsonFormatter)
+    assert not isinstance(file_handler.formatter, JsonFormatter)  # the run log stays readable
+
+
+def test_unknown_format_is_rejected() -> None:
+    with pytest.raises(ValueError, match="Unknown log format"):
+        setup_logging("INFO", fmt="xml")

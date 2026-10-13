@@ -58,6 +58,7 @@ ENV PATH=/app/.venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     MLFLOW_DISABLE_AGENT_HINT=1 \
     GIT_PYTHON_REFRESH=quiet \
+    BRENT_LOG_FORMAT=json \
     MPLCONFIGDIR=/tmp/matplotlib
 
 USER brent:brent

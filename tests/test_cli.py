@@ -434,3 +434,15 @@ def test_serve_runs_uvicorn_with_the_api(
     assert result.exit_code == 0, result.output
     assert isinstance(calls["app"], FastAPI)
     assert (calls["host"], calls["port"], calls["log_config"]) == ("0.0.0.0", 9000, None)
+    assert calls["access_log"] is False  # the API writes its own structured access log
+
+
+def test_log_format_option(settings: Settings, tmp_path: Path) -> None:
+    config = _write_config(settings, tmp_path / "config.yaml")
+
+    ok = invoke(["--config", str(config), "--log-format", "JSON", "config", "show"])
+    bad = invoke(["--config", str(config), "--log-format", "xml", "config", "show"])
+
+    assert ok.exit_code == 0, ok.output
+    assert bad.exit_code == 2
+    assert "choosefromtext,json" in re.sub(r"[\s│]", "", bad.output)

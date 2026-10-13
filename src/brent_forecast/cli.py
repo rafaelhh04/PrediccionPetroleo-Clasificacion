@@ -9,7 +9,7 @@ import typer
 from pydantic import ValidationError
 
 from brent_forecast.config import DEFAULT_CONFIG_PATH, Settings, load_settings
-from brent_forecast.logging_config import LOG_LEVELS, setup_logging
+from brent_forecast.logging_config import LOG_FORMATS, LOG_LEVELS, LogFormat, setup_logging
 
 app = typer.Typer(
     name="brent",
@@ -31,6 +31,14 @@ class _State:
 
     config_path: Path
     log_level: str
+    log_format: LogFormat = "text"
+
+
+def _validate_log_format(value: str) -> str:
+    fmt = value.lower()
+    if fmt not in LOG_FORMATS:
+        raise typer.BadParameter(f"choose from {', '.join(LOG_FORMATS)}")
+    return fmt
 
 
 def _validate_log_level(value: str) -> str:
@@ -60,10 +68,20 @@ def main(
             help=f"Logging level: {', '.join(LOG_LEVELS)}.",
         ),
     ] = "INFO",
+    log_format: Annotated[
+        str,
+        typer.Option(
+            "--log-format",
+            envvar="BRENT_LOG_FORMAT",
+            callback=_validate_log_format,
+            help=f"Console log format: {', '.join(LOG_FORMATS)} (json: one object per line).",
+        ),
+    ] = "text",
 ) -> None:
     """Next-day Brent crude oil price direction classifier."""
-    setup_logging(log_level)
-    ctx.obj = _State(config_path=config, log_level=log_level)
+    fmt: LogFormat = "json" if log_format == "json" else "text"
+    setup_logging(log_level, fmt=fmt)
+    ctx.obj = _State(config_path=config, log_level=log_level, log_format=fmt)
 
 
 def _state(ctx: typer.Context) -> _State:
@@ -99,7 +117,8 @@ def train(
     if features is not None and not features.is_file():
         typer.secho(f"{features} not found; run `brent featurize` first.", fg="red", err=True)
         raise typer.Exit(code=1)
-    setup_logging(_state(ctx).log_level, log_file=settings.paths.log_file)
+    state = _state(ctx)
+    setup_logging(state.log_level, log_file=settings.paths.log_file, fmt=state.log_format)
     result = run(settings, features)
     if settings.tracking.enabled:
         from brent_forecast.tracking import log_training
@@ -315,8 +334,10 @@ def serve(
 
     from brent_forecast.api import create_app
 
-    # log_config=None keeps the logging configured by --log-level for uvicorn's loggers too.
-    uvicorn.run(create_app(_settings(ctx)), host=host, port=port, log_config=None)
+    # log_config=None keeps the logging configured by --log-level/--log-format for uvicorn's
+    # loggers too; the API logs one structured line per request itself (with its request id).
+    app = create_app(_settings(ctx))
+    uvicorn.run(app, host=host, port=port, log_config=None, access_log=False)
 
 
 @data_app.command("verify")
