@@ -1,6 +1,6 @@
 # Developer shortcuts. Every target runs inside the uv-managed environment.
 .DEFAULT_GOAL := help
-.PHONY: help install lint format typecheck test coverage test-all data train serve load-test docker-build docker-train docker-up clean
+.PHONY: help install lint format typecheck test coverage test-all data train serve dashboard load-test docker-build docker-train docker-up clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -39,6 +39,9 @@ API_URL ?= http://127.0.0.1:8000
 serve: ## Serve the registered champion over HTTP (docs at /docs)
 	uv run brent serve --port 8000
 
+dashboard: ## Run the Streamlit demo on :8501 (needs `make serve` for the prediction)
+	uv run brent dashboard --port 8501
+
 load-test: ## Load-test a running API (`make serve`) with Locust; CSVs in results/load/
 	uv run --group load locust -f tests/load/locustfile.py --headless --host $(API_URL) \
 		--users 10 --spawn-rate 5 --run-time 60s --csv results/load/locust --only-summary
@@ -49,7 +52,7 @@ docker-build: ## Build the inference image (brent-forecast:latest)
 docker-train: ## Train, report and register the champion inside the compose stack
 	docker compose --profile train run --rm trainer
 
-docker-up: ## Start the API (:8000) and the MLflow server (:5000) in the background
+docker-up: ## Start the API (:8000), the dashboard (:8501) and MLflow (:5000) in the background
 	docker compose up -d
 
 clean: ## Remove caches and generated results

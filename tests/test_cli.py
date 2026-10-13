@@ -446,3 +446,36 @@ def test_log_format_option(settings: Settings, tmp_path: Path) -> None:
     assert ok.exit_code == 0, ok.output
     assert bad.exit_code == 2
     assert "choosefromtext,json" in re.sub(r"[\s│]", "", bad.output)
+
+
+def test_dashboard_runs_streamlit_on_the_app(
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import subprocess
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(subprocess, "call", lambda command: calls.append(command) or 0)
+    config = _write_config(settings, tmp_path / "config.yaml")
+
+    result = invoke(["--config", str(config), "dashboard", "--port", "9501"])
+
+    assert result.exit_code == 0, result.output
+    (command,) = calls
+    assert command[1:4] == ["-m", "streamlit", "run"]
+    assert command[4].endswith("brent_forecast/dashboard/app.py")
+    assert "--server.port=9501" in command
+    assert command[-2:] == ["--config", str(config)]
+
+
+def test_dashboard_requires_streamlit(monkeypatch: pytest.MonkeyPatch) -> None:
+    import importlib.util
+
+    real = importlib.util.find_spec
+    monkeypatch.setattr(
+        importlib.util, "find_spec", lambda name: None if name == "streamlit" else real(name)
+    )
+
+    result = invoke(["dashboard"])
+
+    assert result.exit_code == 1
+    assert "--extra dashboard" in result.output
