@@ -1,12 +1,14 @@
 # syntax=docker/dockerfile:1
-# Inference image of the Brent direction classifier (`brent serve`).
+# Images of the Brent direction classifier.
 #
-#   docker build -t brent-forecast .
+#   docker build -t brent-forecast .                                    # inference API (default)
+#   docker build --target dashboard -t brent-forecast-dashboard .       # Streamlit demo
 #   docker run --rm -p 8000:8000 -v "$PWD/mlruns:/app/mlruns" -v "$PWD/data:/app/data:ro" brent-forecast
 #
-# Two stages: `builder` resolves the locked runtime dependencies with uv (no dev or
-# load-test groups) into /app/.venv; `runtime` copies only that environment, the
-# configuration and nothing else, and runs as an unprivileged user.
+# `builder` resolves the locked runtime dependencies with uv (no dev or load-test groups)
+# into /app/.venv; `builder-dashboard` adds the `dashboard` extra. The final images start
+# from `base` (slim Debian, unprivileged user) and copy only their environment and the
+# configuration. `runtime` (the API) is the last stage, so it is what a plain build produces.
 
 # Base images are pinned in the FROM lines so Dependabot can update them.
 FROM ghcr.io/astral-sh/uv:0.11.32 AS uv
@@ -32,12 +34,15 @@ COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
 
-# ── runtime ───────────────────────────────────────────────────
-FROM python:3.12-slim-trixie AS runtime
+# ── dashboard dependencies ────────────────────────────────────
+FROM builder AS builder-dashboard
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable --extra dashboard
 
-LABEL org.opencontainers.image.title="brent-forecast" \
-      org.opencontainers.image.description="Next-day Brent crude oil direction classifier (inference API)" \
-      org.opencontainers.image.source="https://github.com/rafaelhh04/PrediccionPetroleo-Clasificacion" \
+# ── base of the final images ──────────────────────────────────
+FROM python:3.12-slim-trixie AS base
+
+LABEL org.opencontainers.image.source="https://github.com/rafaelhh04/PrediccionPetroleo-Clasificacion" \
       org.opencontainers.image.licenses="MIT"
 
 # libgomp1: OpenMP runtime required by LightGBM (the challenger or a future champion).
@@ -50,7 +55,6 @@ RUN apt-get update \
     && chown -R brent:brent /app
 
 WORKDIR /app
-COPY --from=builder --chown=brent:brent /app/.venv /app/.venv
 COPY --chown=brent:brent configs ./configs
 
 ENV PATH=/app/.venv/bin:$PATH \
@@ -62,6 +66,24 @@ ENV PATH=/app/.venv/bin:$PATH \
     MPLCONFIGDIR=/tmp/matplotlib
 
 USER brent:brent
+ENTRYPOINT ["brent"]
+
+# ── dashboard ─────────────────────────────────────────────────
+FROM base AS dashboard
+LABEL org.opencontainers.image.title="brent-forecast-dashboard" \
+      org.opencontainers.image.description="Streamlit demo of the Brent direction classifier"
+COPY --from=builder-dashboard --chown=brent:brent /app/.venv /app/.venv
+ENV STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+EXPOSE 8501
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=4)"]
+CMD ["dashboard", "--host", "0.0.0.0", "--port", "8501"]
+
+# ── runtime: the inference API (default target) ───────────────
+FROM base AS runtime
+LABEL org.opencontainers.image.title="brent-forecast" \
+      org.opencontainers.image.description="Next-day Brent crude oil direction classifier (inference API)"
+COPY --from=builder --chown=brent:brent /app/.venv /app/.venv
 EXPOSE 8000
 VOLUME ["/app/mlruns", "/app/results"]
 
@@ -69,5 +91,4 @@ VOLUME ["/app/mlruns", "/app/results"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
 
-ENTRYPOINT ["brent"]
 CMD ["serve", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,8 +1,8 @@
-# Local stack: inference API + MLflow tracking server (UI), sharing the registry.
+# Local stack: inference API + Streamlit dashboard + MLflow tracking server (UI), sharing the registry.
 #
 #   docker compose build
 #   docker compose --profile train run --rm trainer   # once: train, report, register the champion
-#   docker compose up -d                              # API on :8000, MLflow UI on :5000
+#   docker compose up -d                              # API :8000, dashboard :8501, MLflow UI :5000
 #
 # mlruns/ (SQLite store + artefacts) and results/ live in named volumes mounted at the same
 # path in every container, so the artefact locations recorded by the trainer resolve in the API
@@ -29,6 +29,22 @@ services:
     restart: unless-stopped
     # Readiness probe inherited from the image (HEALTHCHECK on /health).
 
+  dashboard:
+    image: brent-forecast-dashboard:latest
+    build:
+      context: .
+      target: dashboard
+    volumes:
+      - results:/app/results:ro
+      - ./data:/app/data:ro
+    environment:
+      BRENT_DASHBOARD__API_URL: http://api:8000
+    ports:
+      - "${DASHBOARD_PORT:-8501}:8501"
+    depends_on:
+      - api
+    restart: unless-stopped
+
   mlflow:
     <<: *app
     entrypoint: ["mlflow"]
@@ -48,12 +64,12 @@ services:
       start_period: 30s
       retries: 3
 
-  # One-off job (not started by `up`): full training + statistical report + promotion.
+  # One-off job (not started by `up`): training, statistical report + promotion, explanations.
   trainer:
     <<: *app
     profiles: ["train"]
     entrypoint: ["sh", "-c"]
-    command: ["brent train && brent report"]
+    command: ["brent train && brent report && brent explain"]
     healthcheck:
       disable: true
 

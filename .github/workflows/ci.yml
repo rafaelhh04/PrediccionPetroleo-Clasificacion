@@ -76,12 +76,15 @@ jobs:
     timeout-minutes: 30
     env:
       IMAGE: brent-forecast:ci
+      DASHBOARD_IMAGE: brent-forecast-dashboard:ci
       # Pinned scanner image (Dependabot does not track it: bump it by hand).
       TRIVY_IMAGE: aquasec/trivy:0.75.0
     steps:
       - uses: actions/checkout@v7
-      - name: Build the image
-        run: docker build --tag "$IMAGE" .
+      - name: Build the images (API, dashboard)
+        run: |
+          docker build --tag "$IMAGE" .
+          docker build --target dashboard --tag "$DASHBOARD_IMAGE" .
       - name: Validate docker-compose.yml
         run: docker compose config --quiet
       - name: Smoke test (non-root user, liveness, readiness without a registry)
@@ -98,18 +101,29 @@ jobs:
           curl --silent --include --header 'X-Request-ID: ci-smoke' localhost:8000/health/live \
             | grep --ignore-case '^x-request-id: ci-smoke'
           docker inspect --format '{{json .Config.Healthcheck}}' api
+      - name: Smoke test the dashboard (non-root, Streamlit health)
+        run: |
+          docker run --detach --name dashboard --publish 8501:8501 "$DASHBOARD_IMAGE"
+          for _ in $(seq 60); do curl --silent --fail localhost:8501/_stcore/health && break; sleep 2; done
+          echo
+          test "$(docker exec dashboard id -u)" = "10001"
+          curl --silent --fail localhost:8501/_stcore/health
       - name: Container logs
         if: always()
-        run: docker logs api || true
+        run: |
+          docker logs api || true
+          docker logs dashboard || true
       - name: Trivy report (HIGH and CRITICAL, informational)
         run: >-
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache
           "$TRIVY_IMAGE" image --scanners vuln --severity HIGH,CRITICAL --no-progress "$IMAGE"
-      - name: Trivy gate (fail on fixable CRITICAL vulnerabilities)
-        run: >-
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache
-          "$TRIVY_IMAGE" image --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1
-          --skip-db-update --no-progress "$IMAGE"
+      - name: Trivy gate (fail on fixable CRITICAL vulnerabilities, both images)
+        run: |
+          for image in "$IMAGE" "$DASHBOARD_IMAGE"; do
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache \
+              "$TRIVY_IMAGE" image --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1 \
+              --skip-db-update --no-progress "$image"
+          done
 
   slow:
     name: Slow end-to-end tests
