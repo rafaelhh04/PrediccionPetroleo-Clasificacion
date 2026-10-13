@@ -169,6 +169,19 @@ con Pydantic (números finitos, sin campos desconocidos), contra la firma del mo
 desconocidas) y con `INFERENCE_SCHEMA`; todos los errores son 422 con el formato de FastAPI. La API y
 `brent predict` comparten `predict.predict_features`.
 
+Tests: endpoints y errores con un modelo en memoria, un registry MLflow real en un directorio temporal y un
+test de contrato que compara el esquema OpenAPI con `tests/snapshots/openapi.json` (se regenera a propósito
+con `UPDATE_SNAPSHOTS=1`). Test de carga con Locust (`make serve` y `make load-test`, fuera de pytest), con
+un único proceso uvicorn y Locust en la misma máquina de 4 cores:
+
+| Perfil | Throughput | Fallos | p50 | p95 | p99 |
+|--------|-----------:|-------:|----:|----:|----:|
+| Nominal: 10 usuarios, 0.5–1.5 s entre peticiones | 9.9 req/s | 0 % | 28 ms | **72 ms** | 120 ms |
+| Saturación: 20 usuarios, 0.05–0.2 s | 38.7 req/s | 0 % | 380 ms | 790 ms | 1100 ms |
+
+Una predicción aislada tarda 25–40 ms (≈22 ms son la validación Pandera); un proceso se satura en
+~40 req/s (GIL): para escalar, más procesos o réplicas.
+
 ## Resultados (AUC-ROC)
 
 > **¿Qué cifras son reales?** Solo la primera tabla (ejecución antigua del código original con los datos de
