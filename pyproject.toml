@@ -52,6 +52,9 @@ dev = [
     "ruff>=0.11",
     "types-pyyaml>=6.0",
 ]
+load = [
+    "locust>=2.46",
+]
 
 [build-system]
 requires = ["uv_build>=0.11,<0.12"]

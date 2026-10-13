@@ -1,6 +1,6 @@
 # Developer shortcuts. Every target runs inside the uv-managed environment.
 .DEFAULT_GOAL := help
-.PHONY: help install lint format typecheck test coverage test-all data train clean
+.PHONY: help install lint format typecheck test coverage test-all data train serve load-test clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -33,6 +33,15 @@ data: ## Download the Kaggle dataset and verify checksums
 
 train: ## Run the full training pipeline
 	uv run brent train
+
+API_URL ?= http://127.0.0.1:8000
+
+serve: ## Serve the registered champion over HTTP (docs at /docs)
+	uv run brent serve --port 8000
+
+load-test: ## Load-test a running API (`make serve`) with Locust; CSVs in results/load/
+	uv run --group load locust -f tests/load/locustfile.py --headless --host $(API_URL) \
+		--users 10 --spawn-rate 5 --run-time 60s --csv results/load/locust --only-summary
 
 clean: ## Remove caches and generated results
 	rm -rf .ruff_cache .mypy_cache .pytest_cache .coverage htmlcov results
