@@ -125,6 +125,49 @@ jobs:
               --skip-db-update --no-progress "$image"
           done
 
+  infra:
+    name: Terraform (fmt, validate, test, tflint, Trivy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Pinned tool images, run like Trivy above (no third-party actions).
+      TERRAFORM_IMAGE: hashicorp/terraform:1.16.6
+      TFLINT_IMAGE: ghcr.io/terraform-linters/tflint:v0.59.1
+      TRIVY_IMAGE: aquasec/trivy:0.75.0
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v7
+      - name: terraform fmt
+        run: docker run --rm -v "$PWD:/infra" -w /infra "$TERRAFORM_IMAGE" fmt -recursive -check -diff
+      - name: terraform validate (no backend, no credentials)
+        run: |
+          for dir in bootstrap .; do
+            docker run --rm -v "$PWD:/infra" -w "/infra/$dir" "$TERRAFORM_IMAGE" \
+              init -backend=false -input=false -lockfile=readonly
+            docker run --rm -v "$PWD:/infra" -w "/infra/$dir" "$TERRAFORM_IMAGE" validate
+          done
+      - name: terraform test (mocked providers)
+        run: docker run --rm -v "$PWD:/infra" -w /infra "$TERRAFORM_IMAGE" test
+      - name: tflint (terraform + google rulesets)
+        env:
+          GITHUB_TOKEN: ${{ github.token }} # plugin download from GitHub releases (rate limit)
+        run: |
+          tflint() {
+            docker run --rm -v "$PWD:/data" -w /data -e GITHUB_TOKEN \
+              -e TFLINT_PLUGIN_DIR=/data/.tflint.d/plugins "$TFLINT_IMAGE" "$@"
+          }
+          tflint --init --config /data/.tflint.hcl
+          tflint --recursive --config /data/.tflint.hcl --format compact
+      - name: Trivy IaC scan (fail on MEDIUM and above, both MLflow backends)
+        run: |
+          for vars in "" "--tf-vars /infra/tests/cloudsql.tfvars"; do
+            # shellcheck disable=SC2086 # $vars is intentionally split into flag and value
+            docker run --rm -v "$PWD:/infra:ro" -v trivy-cache:/root/.cache "$TRIVY_IMAGE" \
+              config --severity MEDIUM,HIGH,CRITICAL --exit-code 1 $vars /infra
+          done
+
   slow:
     name: Slow end-to-end tests
     # Only on demand and on the weekly schedule: they run the full CLI training.
