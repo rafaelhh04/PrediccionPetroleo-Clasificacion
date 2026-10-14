@@ -180,7 +180,7 @@ Si el tiempo es limitado, el **mínimo viable de portfolio** es: Fases 1 + 2 + 3
 | 3 Rigor ML | ✅ | `fix/label-last-row` (#15), `refactor/sklearn-pipelines` (#16), `feat/walk-forward-validation` (#17), `feat/baselines` (#18), `feat/statistical-evaluation` (#19), `feat/financial-backtest` (#20), `feat/feature-engineering-v2` (#21), `feat/gradient-boosting-optuna` (#22), `feat/model-explainability` (#23), `docs/model-card` (#24) | Pipelines sklearn + walk-forward purgado (10 ventanas OOS) + 4 baselines + `brent report` (IC block bootstrap, DeLong+Holm, binomial, Brier, backtest) + LightGBM/Optuna + `brent explain` (SHAP, permutation). Conclusión: sin señal. 422 tests, 99 % cobertura. Ver notas de cierre ↓ |
 | 4 MLOps | ✅ | `feat/experiment-tracking` (#25), `feat/data-versioning` (#26), `feat/data-validation` (#27), `feat/data-ingestion-live` (#28), `fix/dvc-reproducible-lock` (#29), `docs/phase-4-closing` (#30) | MLflow (runs anidados, artefactos, skops, registry con alias `champion`/`challenger` y regla de promoción testeada) + DVC (6 etapas, `dvc.lock`, remote local) + Pandera (5 contratos) + ingesta Yahoo/FRED + `brent predict`. Campeón = baseline de persistencia (ningún modelo la supera). 516 tests, 98.5 % cobertura. Ver notas de cierre ↓ |
 | 5 Serving | ✅ | `feat/inference-api` (#32), `test/api-tests` (#33), `feat/docker` (#34), `feat/observability` (#39), `feat/demo-dashboard` (#41), `chore/dependabot-docker-python` (#42), `docs/phase-5-closing` | FastAPI (`/predict`, `/health`, `/model-info`) servida desde el registry por alias, contrato = firma MLflow + Pandera, 422/503 + snapshot OpenAPI + Locust (p95 72 ms nominal) + Docker multi-stage (API y dashboard, no root, HEALTHCHECK) + compose (API, dashboard, MLflow, trainer) + Trivy en CI + Prometheus/logs JSON/request id + Streamlit con aviso de datos sintéticos. 587 tests, 98.1 % cobertura. Ver notas de cierre ↓ |
-| 6 | ⏳ pendiente | | |
+| 6 Cloud y CD | ✅ (listo para aplicar; sin credenciales de GCP) | `feat/infra-terraform` (#44), `ci/continuous-deployment` (#45), `feat/scheduled-retraining` (#49), `feat/drift-monitoring` (#50), `docs/phase-6-closing` | Terraform en dos stacks (bootstrap con estado, Artifact Registry y WIF; stack con GCS, Cloud Run, Secret Manager, jobs, Scheduler y Cloud SQL opcional) + `terraform test` con providers simulados + tflint/Trivy IaC. CD sin claves (OIDC) build → attest → staging → aprobación → prod, con revisión candidata y smoke test. `brent retrain` idempotente con la regla de promoción existente, notificaciones y recarga en caliente en la API. Drift con Evidently y alerta. 645 tests, 97.8 % de cobertura. Coste ~0 €/mes. Ver notas de cierre ↓ |
 | 7 | ⏳ pendiente | | |
 
 
@@ -480,6 +480,132 @@ se valida en CI. `pkill -f "<patrón>"` mata la propia shell si el patrón apare
 `pkill -f "[p]atrón"`. `AppTest.from_function` copia el código de la función, así que no puede usar nombres
 importados en las anotaciones. Activar un ecosistema de Dependabot abre PRs al instante, lo que desplaza la
 numeración de los PRs propios.
+
+### Notas de cierre — Fase 6
+
+**Resultado.** Toda la plataforma cloud está descrita como código y lista para aplicar en GCP:
+- Terraform en dos stacks;
+- despliegue continuo sin claves de staging a producción;
+- reentrenamiento programado con la regla de promoción existente;
+- monitorización de drift de datos y de predicciones con alertas.
+
+El entorno de desarrollo **no tiene credenciales de GCP**, así que todavía no hay URL pública. Se aplicó la
+alternativa prevista en el DoD:
+- `terraform validate` y `terraform test` en verde;
+- workflows probados en seco (actionlint + shellcheck, y una ejecución real de `cd.yml` en `main` con el CD
+  deshabilitado);
+- documentación paso a paso en `infra/README.md`.
+
+Las métricas de ML no cambian. Ningún PR tocó dependencias de etapas DVC ni parámetros rastreados, y los
+datos siguen siendo **sintéticos**: el campeón es la persistencia y la regresión logística, el challenger.
+
+**Verificación del DoD.**
+- **URL pública / listo para aplicar.** Sin credenciales (`gcloud auth list` → *No credentialed accounts*).
+  - `terraform -chdir=infra/bootstrap validate` → *Success! The configuration is valid*; `terraform test`
+    → 2 passed.
+  - `terraform -chdir=infra validate` → valid; `terraform test` → 7 passed (escala a cero, montajes de solo
+    lectura, IAM mínimo, Cloud SQL opcional, jobs, Scheduler ≤ 3, secreto del webhook).
+  - `terraform fmt -check`, tflint 0.64 (ruleset google 0.40) y Trivy IaC (MEDIUM+) limpios para los dos
+    backends.
+  - En CI, el job `infra` hace lo mismo con imágenes fijadas. `infra-plan` se omite hasta que exista
+    `GCP_PLANNER_SA`.
+- **CD vía OIDC, staging → prod.**
+  - `cd.yml` (build por SHA, digest inmutable, atestación de procedencia, staging, aprobación del entorno
+    `production`) y `deploy-environment.yml`: revisión `candidate` sin tráfico, `scripts/smoke_test.py`
+    (`/health` 200 con modelo, predicción, 422), promoción del tráfico y actualización de los jobs en prod.
+  - `rollback.yml` cambia el tráfico a una revisión anterior.
+  - El run 1 de CD en `main` terminó en `success` por la rama "CD disabled". El job reutilizable se resolvió.
+    actionlint con shellcheck está limpio en CI.
+- **Reentrenamiento programado y drift.**
+  - `brent retrain` (Cloud Run Job semanal) aplica `select_champion`, es idempotente por *fingerprint*,
+    publica el store SQLite solo si termina bien y notifica el resultado. El e2e lento real (entrena,
+    promueve y la segunda ejecución se salta) pasa en 9.5 min.
+  - La API recoge la nueva versión del alias sin reiniciar.
+  - `brent monitor drift` (job diario) escribe el informe Evidently, el resumen y el histórico, y alerta por
+    webhook. En los datos sintéticos deriva el 57 % de las features (niveles no estacionarios) y la
+    predicción no.
+- **Coste.** Tabla en `infra/README.md`: ~0 €/mes con los valores por defecto.
+  - Cloud Run (servicios y jobs), GCS (< 1 GB en us-central1), Secret Manager y Scheduler (3 jobs) caben
+    en la capa gratuita.
+  - Artifact Registry cuesta 0–0.30 €/mes por encima de 0.5 GB.
+  - Cloud SQL es opcional, ~9–10 USD/mes.
+  - Hay un presupuesto con alertas opcional (`billing_account`).
+- **Calidad.** CI verde en 3.12 y 3.13 en los cuatro PRs: 645 tests (+2 slow), cobertura de ramas
+  **97.8 %**, `mypy --strict` sin `type: ignore` en `src/` y `pre-commit run --all-files` verde. Los 212
+  commits de la rama 4 (y los de este cierre) son de rafaelhh04, sin trailers ni menciones a asistentes.
+- **Docs.** README en/es (despliegue cloud, CD, reentrenamiento, drift), `infra/README.md` (diagramas
+  Mermaid de arquitectura y de CD, decisiones, pasos, configuración de GitHub y costes) y model card
+  (reentrenamiento y drift).
+
+**Decisiones y desviaciones respecto al plan.**
+- **Sin credenciales de GCP**: no se aplicó nada. Todo se validó sin credenciales: `terraform test` con
+  `mock_provider` (más útil que `validate`, que solo comprueba esquemas) y un mirror local de providers,
+  porque la red bloquea `registry.terraform.io`. El lockfile tiene hashes de Linux, macOS y Windows.
+- **Dos stacks.** `infra/bootstrap` (estado local) crea las APIs, el bucket del estado, Artifact Registry y
+  WIF. `infra/` guarda su estado en GCS con bloqueo. Así se evita el huevo y la gallina: hace falta un
+  registry y una identidad de CD antes de tener servicios. No hay módulos: cada recurso existe una vez o
+  una por entorno (`for_each`).
+- **Storage = GCS FUSE.** Los servicios y jobs montan `data/`, `mlruns/` y `results/` del bucket en las
+  mismas rutas que compose: MLflow guarda rutas absolutas, y así resuelven en todos los contenedores. La
+  API y el dashboard montan en solo lectura. Para eso `load_from_registry` resuelve alias → versión y
+  carga desde una copia temporal (MLflow escribía `registered_model_meta` junto a los artefactos).
+- **Backend de MLflow.** Por defecto, SQLite en el bucket (0 €). Tiene un único escritor: el servidor de la
+  UI está limitado a una instancia y el job de reentrenamiento trabaja con `--stage-store`, una copia
+  local publicada con la API de backup de SQLite. Un `os.replace` dejaba a la caché de engines de MLflow
+  leyendo el fichero borrado. La alternativa es Cloud SQL PostgreSQL con una variable (~9–10 USD/mes),
+  con el driver en el extra `postgres` y la URI en Secret Manager. La UI de MLflow nunca es pública.
+- **Dimensionado de la API desde el p95**: 1 vCPU, 1 GiB, concurrencia 8 (Little: ~3 peticiones en vuelo a
+  40 req/s), instancias de 0 a 2. Las sondas de arranque y liveness usan `/health/live`. El 200 de
+  `/health` lo exige el smoke test del CD, no Cloud Run.
+- **CD.** La imagen la gestiona el CD; Terraform ignora `image`, `client` y `traffic`. Solo los jobs
+  ligados a los entornos `staging` y `production` pueden suplantar al *deployer*. El *planner* es de solo
+  lectura (`plan -lock=false`). Las actions de Google son oficiales y Terraform, tflint, Trivy y
+  actionlint se ejecutan desde imágenes fijadas. La firma es una atestación de procedencia de GitHub
+  (Sigstore) en lugar de cosign: no requiere claves.
+- **Reentrenamiento** con Cloud Run Jobs + Cloud Scheduler en vez de un cron de GitHub Actions: los datos y
+  el registry están en GCP. La API comprueba su alias cada `serving.refresh_interval_seconds` y carga la
+  versión nueva en segundo plano, sin endpoint protegido. Con `cpu_idle` la carga puede completarse en la
+  siguiente petición.
+- **Drift**: ventana actual de 60 días frente a los 756 anteriores, con la predicción como columna (no hay
+  log de predicciones). Las features de calendario se excluyen. El informe se publica en el bucket
+  (`results/drift/`) y en la pestaña *Monitoring* del dashboard, no en GitHub Pages, que se reserva para
+  MkDocs en la Fase 7. La alerta va por webhook; no se crean issues, porque harían falta un PAT o
+  credenciales de GCP en Actions.
+- **Notificaciones**: un webhook genérico (`text` + `content`). La URL es `SecretStr` y no aparece en
+  `config show` ni en la configuración que se registra en MLflow.
+
+**Deuda técnica / pendientes.**
+- **Del usuario, para tener las URL públicas.**
+  - Proyecto GCP con facturación.
+  - `terraform apply` de `infra/bootstrap`, primera imagen, `infra/` y `gcloud run jobs execute
+    brent-retrain`.
+  - Variables `GCP_*` del repositorio.
+  - Entornos `staging` y `production` (este último con revisores obligatorios).
+  - Opcional: secreto del webhook + `notify_webhook = true`.
+
+  Todo está detallado en `infra/README.md`.
+- **Datos reales**: siguen bloqueados (Kaggle, Yahoo, FRED → 403). Las tablas de métricas sintéticas
+  siguen desactualizadas (ver Fase 5).
+- **Imagen de la API** más grande: ahora lleva Evidently y psycopg2. Separar imágenes o extras de
+  serve/train/monitor sigue pendiente; Artifact Registry puede salir de la capa gratuita.
+- Contención de SQLite: las ediciones en la UI de MLflow durante un reentrenamiento se pierden. Con varios
+  escritores, Cloud SQL.
+- `/health` exige un campeón: el primer CD falla en staging hasta ejecutar el job de reentrenamiento
+  (documentado).
+- PRs de Dependabot abiertos sin revisar: #40, #46, #47 y #48 (#14, #35–#38 fueron sustituidos o cerrados).
+- Siguen pendientes del usuario el secret `CODECOV_TOKEN`, importar el ruleset y abrir los dominios de
+  datos.
+
+**Lecciones de proceso.**
+- La red bloquea `registry.terraform.io` y la API de GitHub. `releases.hashicorp.com`, las descargas de
+  GitHub Releases y `git ls-remote` funcionan, y bastan para un *filesystem mirror* de providers y para
+  comprobar las versiones de las actions.
+- El *bundle* de checks de Trivy que usa CI (ghcr) es más reciente que el de `mirror.gcr.io`: en CI
+  apareció GCP-0077, que el escaneo local no veía. Las supresiones inline admiten el ID con y sin `AVD-`.
+- Con `mock_provider` y `command = apply`, los atributos calculados son aleatorios y pueden no pasar la
+  validación del provider (emails de cuentas de servicio): hay que fijarlos con `mock_resource`.
+- `ruff format` reescribe aserciones encadenadas: hay que ejecutarlo antes de commitear los tests.
+- Lanzar la suite completa y el e2e lento a la vez duplica el tiempo de ambos (4 cores).
 
 ---
 
