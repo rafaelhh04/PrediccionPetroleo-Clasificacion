@@ -146,6 +146,13 @@ skipped or failed. The API loads the new version of the alias without a restart.
 days does not remove the caveats below: each run tests many models on an out-of-sample period that
 grows slowly, and that period is reused by every run.
 
+**Drift monitoring** (`brent monitor drift`, Evidently) runs daily. It compares the last 60 trading days
+with the 756 before them, for every input feature (calendar features excluded) and for the served
+model's predicted probability. An alert reaches the same webhook when half of the features or the
+predictions drift. On the synthetic data, level features (VIX, dollar index, volatilities) drift as
+expected for non-stationary series, while the predictions do not. Such an alert calls for a look at the
+data and the model, not for retraining by itself: with no predictive signal, retraining cannot fix it.
+
 ## Quantitative safeguards
 
 - Leakage tests:

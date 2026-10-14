@@ -264,6 +264,14 @@ correcta. Trabaja sobre una copia local del registry SQLite y solo la publica si
 Manager). La API comprueba su alias cada `serving.refresh_interval_seconds` y carga la versión nueva en
 segundo plano, sin reiniciar.
 
+**Monitorización de drift (Evidently)**: `brent monitor drift` se ejecuta cada día laborable tras la
+ingesta. Compara las features de los **últimos 60 días** con los **756 anteriores**, con los datos en vivo
+si existen. Usa el `DataDriftPreset` de Evidently (test de Kolmogorov-Smirnov por columna) y trata la
+**P(up)** del modelo servido como una columna más, que mide el *prediction drift*. Las features de
+calendario se excluyen. Se genera una **alerta** al webhook si deriva el 50 % de las features
+(`monitoring.drift_share`) o si derivan las predicciones. El informe HTML, un resumen JSON y el
+histórico se guardan en `results/drift/` y se muestran en la pestaña *Monitoring* del dashboard.
+
 `make infra-check` ejecuta `terraform fmt`/`validate` y `terraform test` con *providers* simulados (sin
 credenciales). CI añade **tflint**, el escaneo IaC de **Trivy**, **actionlint** y un `terraform plan` con
 una identidad de solo lectura cuando GCP está configurado. Pasos de despliegue, diagramas y tabla de
@@ -323,6 +331,9 @@ de 50 estimaciones ruidosas) y cayó a 0.450 fuera de muestra.
 │   ├── logging_config.py       # logging a consola y a fichero
 │   ├── pipeline.py             # orquestación del entrenamiento
 │   ├── predict.py              # predicción del día siguiente (CLI y API)
+│   ├── retrain.py              # reentrenamiento programado (idempotente, regla de promoción, avisos)
+│   ├── notify.py               # notificaciones por webhook de los jobs programados
+│   ├── monitoring/             # drift de datos y predicciones con Evidently (`brent monitor drift`)
 │   ├── api/                    # servicio de inferencia FastAPI (`brent serve`)
 │   ├── dashboard/              # demo en Streamlit (`brent dashboard`)
 │   ├── data/                   # descarga de Kaggle + checksums, carga y merge

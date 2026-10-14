@@ -508,6 +508,25 @@ uv run brent retrain --no-ingest           # same as the job, on local data; JSO
 uv run brent retrain --force               # retrain even if nothing changed
 ```
 
+#### Drift monitoring (Evidently)
+
+`brent monitor drift` runs every weekday after the ingestion. It compares the feature rows of the
+**last 60 trading days** with the **756 days before them**, using the live data once ingested.
+Evidently's `DataDriftPreset` picks a test per column (Kolmogorov-Smirnov at these sizes). The served
+model's **P(up)** on both windows is one more column: that is **prediction drift**. Calendar features
+are excluded, since they always differ between a short and a long window. An **alert** fires when
+`monitoring.drift_share` (50 %) of the features drifted, or when the predictions drifted. It goes to the
+notification webhook. The HTML report, a JSON summary and a history line are written to
+`results/drift/`, published in the bucket and shown in the dashboard's *Monitoring* tab. Without a
+registered model the run reports data drift only. On the synthetic data the price-level features
+(VIX, DXY, volatilities) drift and raise an alert, and the predictions do not. Drift is a reason to
+look, not a verdict.
+
+```bash
+uv run brent monitor drift                 # JSON summary; results/drift/report.html
+uv run brent monitor drift --fail-on-alert # exit code 2 on an alert (CI, cron)
+```
+
 `make infra-check` runs `terraform fmt`/`validate` and plan-level `terraform test` with mocked providers,
 so no credentials are needed. CI adds **tflint**, a **Trivy** IaC scan and **actionlint**, plus
 `terraform plan` with a read-only identity once GCP is configured. Step-by-step deployment, the
@@ -612,6 +631,9 @@ Effect of the v2 features (same protocol; v1 = 14 features, v2 = 29 before the V
 │   ├── logging_config.py       # console + per-run file logging
 │   ├── pipeline.py             # end-to-end training orchestration
 │   ├── predict.py              # next-day prediction (shared by `brent predict` and the API)
+│   ├── retrain.py              # scheduled retraining: idempotent, promotion rule, notifications
+│   ├── notify.py               # chat webhook notifications of the scheduled jobs
+│   ├── monitoring/             # data and prediction drift with Evidently (`brent monitor drift`)
 │   ├── api/                    # FastAPI inference service (`brent serve`)
 │   ├── dashboard/              # Streamlit demo (`brent dashboard`)
 │   ├── data/                   # Kaggle download + checksums, loading and merge

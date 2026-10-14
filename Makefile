@@ -1,6 +1,6 @@
 # Developer shortcuts. Every target runs inside the uv-managed environment.
 .DEFAULT_GOAL := help
-.PHONY: help install lint format typecheck test coverage test-all data train retrain serve dashboard load-test docker-build docker-train docker-up infra-check clean
+.PHONY: help install lint format typecheck test coverage test-all data train retrain drift serve dashboard load-test docker-build docker-train docker-up infra-check clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -36,6 +36,9 @@ train: ## Run the full training pipeline
 
 retrain: ## Scheduled retraining on local data: train, report + promotion, explain (skips if unchanged)
 	uv run brent retrain --no-ingest
+
+drift: ## Data and prediction drift report (Evidently) in results/drift/
+	uv run brent monitor drift
 
 API_URL ?= http://127.0.0.1:8000
 
