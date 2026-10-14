@@ -100,6 +100,13 @@ dashboard:
   api_url: http://127.0.0.1:8000
   timeout_seconds: 5
 
+# Notifications of the scheduled jobs (`brent retrain`, `brent monitor drift`): one JSON POST to a
+# chat webhook (Slack, Discord, Google Chat, Teams...). Keep the URL out of this file: set
+# BRENT_NOTIFY__WEBHOOK_URL (in the cloud it comes from Secret Manager). null = log only.
+notify:
+  webhook_url: null
+  timeout_seconds: 10
+
 # `brent explain`: every listed model is refitted on the development period and explained on the
 # out-of-sample period (permutation importance on raw features, SHAP on the model inputs).
 explain:
