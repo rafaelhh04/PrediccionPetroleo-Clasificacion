@@ -107,10 +107,9 @@ def test_a_rerun_without_changes_is_skipped(tracked: Settings) -> None:
 
     assert registry.calls == ["ingest"]  # nothing trained, nothing registered
     assert outcome.status == "skipped"
-    assert outcome.champion_after == outcome.champion_before == {
-        "version": "1",
-        "candidate": "persistence",
-    }
+    expected = {"version": "1", "candidate": "persistence"}
+    assert outcome.champion_before == expected
+    assert outcome.champion_after == expected
     assert "skipped" in json.loads(outcome_file(tracked).read_text())["status"]
 
 
@@ -231,9 +230,7 @@ def test_the_default_notifier_uses_the_configured_webhook(
     )
     notify_cfg = tracked.notify.model_copy(update={"webhook_url": SecretStr("https://hook")})
 
-    run_and_notify(
-        tracked.model_copy(update={"notify": notify_cfg}), steps=FakeRegistry().steps()
-    )
+    run_and_notify(tracked.model_copy(update={"notify": notify_cfg}), steps=FakeRegistry().steps())
 
     assert posted == [("https://hook", "Brent retraining: NEW champion promoted")]
 
