@@ -1,6 +1,6 @@
 # Developer shortcuts. Every target runs inside the uv-managed environment.
 .DEFAULT_GOAL := help
-.PHONY: help install lint format typecheck test coverage test-all data train serve dashboard load-test docker-build docker-train docker-up infra-check clean
+.PHONY: help install lint format typecheck test coverage test-all data train retrain serve dashboard load-test docker-build docker-train docker-up infra-check clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -33,6 +33,9 @@ data: ## Download the Kaggle dataset and verify checksums
 
 train: ## Run the full training pipeline
 	uv run brent train
+
+retrain: ## Scheduled retraining on local data: train, report + promotion, explain (skips if unchanged)
+	uv run brent retrain --no-ingest
 
 API_URL ?= http://127.0.0.1:8000
 
