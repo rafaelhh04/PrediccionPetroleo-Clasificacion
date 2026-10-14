@@ -132,7 +132,7 @@ jobs:
     env:
       # Pinned tool images, run like Trivy above (no third-party actions).
       TERRAFORM_IMAGE: hashicorp/terraform:1.16.6
-      TFLINT_IMAGE: ghcr.io/terraform-linters/tflint:v0.59.1
+      TFLINT_IMAGE: ghcr.io/terraform-linters/tflint:v0.64.0
       TRIVY_IMAGE: aquasec/trivy:0.75.0
     defaults:
       run:
