@@ -44,6 +44,10 @@ brent = "brent_forecast.cli:app"
 dashboard = [
     "streamlit>=1.60",
 ]
+# PostgreSQL driver for an MLflow backend store on Cloud SQL (infra/, `mlflow_backend = "cloudsql"`).
+postgres = [
+    "psycopg2-binary>=2.9",
+]
 
 [dependency-groups]
 dev = [
