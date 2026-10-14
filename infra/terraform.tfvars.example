@@ -1,0 +1,10 @@
+# cp terraform.tfvars.example terraform.tfvars  (terraform.tfvars is git-ignored)
+project_id = "my-gcp-project"
+region     = "us-central1"
+image_tag  = "0123abcd..." # commit SHA of the first image push (see infra/README.md)
+
+# environments      = ["staging", "prod"]
+# mlflow_backend    = "sqlite"            # or "cloudsql" (~9-10 USD/month)
+# mlflow_ui_members = ["user:you@example.com"]
+# billing_account   = "000000-000000-000000"
+# budget            = { amount = 5, currency = "EUR" }

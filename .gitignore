@@ -97,3 +97,20 @@ build/
 # Generated results (re-created on every training run)
 # ─────────────────────────────────────────────
 results/
+
+# ─────────────────────────────────────────────
+# Terraform (state lives in GCS; tfvars may hold project ids and account emails)
+# ─────────────────────────────────────────────
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+!*.tfvars.example
+!infra/tests/*.tfvars
+*_override.tf
+crash.log
+crash.*.log
+.terraformrc
+terraform.rc
+.tflint.d/

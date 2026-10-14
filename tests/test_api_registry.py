@@ -140,3 +140,15 @@ def test_an_empty_registry_is_not_ready(settings: Settings) -> None:
         response = client.get("/health")
 
     assert response.status_code == 503
+
+
+def test_loading_writes_nothing_to_the_registry(registry: Settings) -> None:
+    # In the cloud the registry is a read-only mount: loading must not add files to it
+    # (MLflow writes metadata next to artefacts loaded from a models:/ URI).
+    store = registry.tracking.artifact_dir
+    before = sorted(store.rglob("*"))
+
+    served = load_from_registry(registry, "champion")
+
+    assert served.info["candidate"] == "persistence"
+    assert sorted(store.rglob("*")) == before

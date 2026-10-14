@@ -52,7 +52,10 @@ def test_the_images_are_multi_stage_and_the_api_is_the_default_target() -> None:
     assert "--no-dev" in DOCKERFILE
     assert "--frozen" in DOCKERFILE
     assert "--extra dashboard" in _stage("builder-dashboard")
-    assert "--extra" not in _stage("builder")  # the API image has no Streamlit
+    builder = _stage("builder")
+    assert "--extra dashboard" not in builder  # the API image has no Streamlit
+    assert "--extra postgres" in builder  # but it can use a PostgreSQL MLflow store (Cloud SQL)
+    assert "--extra postgres" not in _stage("builder-dashboard")  # uv sync is exact
 
 
 def test_the_final_images_run_unprivileged_with_a_healthcheck() -> None:

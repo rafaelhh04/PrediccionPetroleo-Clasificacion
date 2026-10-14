@@ -7,9 +7,14 @@ model signature, recorded by ``brent train``). If no model can be loaded yet,
 the service keeps running and retries at most every
 ``serving.reload_interval_seconds`` (``/health`` answers 503 meanwhile), so the
 API can start before the first ``brent report``.
+
+The model is copied to a temporary directory before loading: MLflow writes
+metadata next to the artefacts it loads from ``models:/`` URIs, and in the
+cloud the registry is a read-only mount of the bucket (see ``infra/``).
 """
 
 import logging
+import tempfile
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -20,10 +25,11 @@ from typing import Any
 
 import mlflow
 import pandas as pd
+from mlflow.exceptions import MlflowException
 
 from brent_forecast.config import Settings
 from brent_forecast.predict import Source, latest_features
-from brent_forecast.tracking import load_model, registry_aliases
+from brent_forecast.tracking import registry_aliases
 
 logger = logging.getLogger(__name__)
 
@@ -45,9 +51,26 @@ Loader = Callable[[Settings, str], ServedModel]
 
 
 def load_from_registry(settings: Settings, alias: str) -> ServedModel:
-    """Load ``models:/<registered_model>@<alias>`` with its signature and version tags."""
-    model = load_model(settings, alias)  # also points MLflow at the configured store
-    info = mlflow.models.get_model_info(f"models:/{settings.tracking.registered_model}@{alias}")
+    """Load ``models:/<registered_model>@<alias>`` with its signature and version tags.
+
+    The alias is resolved to a version first, so the model, its signature and its
+    tags all come from the same version even if the alias moves meanwhile. Nothing
+    is written to the registry (it can be mounted read-only).
+
+    Raises
+    ------
+    MlflowException
+        If no version has ``alias`` (or the registry cannot be read).
+    """
+    name = settings.tracking.registered_model
+    tags = registry_aliases(settings).get(alias)  # also points MLflow at the configured store
+    if tags is None:
+        raise MlflowException(f"No version of {name!r} has the alias {alias!r}.")
+    uri = f"models:/{name}/{tags['version']}"
+    with tempfile.TemporaryDirectory(prefix="brent-model-") as tmp:
+        local = mlflow.artifacts.download_artifacts(artifact_uri=uri, dst_path=tmp)
+        model = mlflow.sklearn.load_model(local)
+    info = mlflow.models.get_model_info(uri)
     if info.signature is not None:
         columns: tuple[str, ...] | None = tuple(map(str, info.signature.inputs.input_names()))
     else:
@@ -57,7 +80,7 @@ def load_from_registry(settings: Settings, alias: str) -> ServedModel:
         alias=alias,
         model=model,
         columns=columns,
-        info=registry_aliases(settings).get(alias, {}),
+        info=tags,
     )
 
 

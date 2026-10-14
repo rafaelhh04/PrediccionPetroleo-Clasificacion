@@ -1,6 +1,6 @@
 # Developer shortcuts. Every target runs inside the uv-managed environment.
 .DEFAULT_GOAL := help
-.PHONY: help install lint format typecheck test coverage test-all data train serve dashboard load-test docker-build docker-train docker-up clean
+.PHONY: help install lint format typecheck test coverage test-all data train serve dashboard load-test docker-build docker-train docker-up infra-check clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -54,6 +54,16 @@ docker-train: ## Train, report and register the champion inside the compose stac
 
 docker-up: ## Start the API (:8000), the dashboard (:8501) and MLflow (:5000) in the background
 	docker compose up -d
+
+TERRAFORM ?= terraform
+
+infra-check: ## Terraform: fmt check, validate both stacks (no backend) and plan-level tests
+	$(TERRAFORM) -chdir=infra fmt -recursive -check
+	$(TERRAFORM) -chdir=infra/bootstrap init -backend=false -input=false
+	$(TERRAFORM) -chdir=infra/bootstrap validate
+	$(TERRAFORM) -chdir=infra init -backend=false -input=false
+	$(TERRAFORM) -chdir=infra validate
+	$(TERRAFORM) -chdir=infra test
 
 clean: ## Remove caches and generated results
 	rm -rf .ruff_cache .mypy_cache .pytest_cache .coverage htmlcov results
