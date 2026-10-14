@@ -466,6 +466,28 @@ curl -s localhost:8000/health                       # {"status": "ok", "model_lo
   the training stack (MLflow server, SHAP/numba, LightGBM, SciPy). Splitting them into serving and training
   extras is a known follow-up.
 
+### Cloud deployment (GCP)
+
+[`infra/`](infra) describes the whole cloud stack in **Terraform** (Google provider 8.x), sized to stay
+at **~0 €/month** for a demo:
+
+- **Cloud Run**: the API and the dashboard per environment (`staging`, `prod`), plus a private MLflow UI.
+  All scale to zero with request-based billing. The API runs 1 vCPU / 1 GiB with concurrency 8,
+  sized from the Locust p95 (72 ms) and the ~40 req/s ceiling of one process.
+- **Cloud Storage**: one versioned bucket with a lifecycle policy. `data/`, `mlruns/` (MLflow store and
+  artefacts) and `results/` are mounted with GCS FUSE at the same paths as in compose, read-only in the API
+  and the dashboard. `dvc/` is the DVC remote.
+- **Artifact Registry** (immutable tags, cleanup policy) and **Secret Manager**. One **service account**
+  per workload, granted roles on the bucket and on each secret only. The Terraform state is in GCS,
+  with locking.
+- **MLflow backend**: SQLite on the bucket by default (free, one writer at a time) or **Cloud SQL**
+  PostgreSQL with one variable (`mlflow_backend = "cloudsql"`, ~9–10 USD/month). The trade-off is
+  documented in [infra/README.md](infra/README.md).
+
+`make infra-check` runs `terraform fmt`/`validate` and plan-level `terraform test` with mocked providers,
+so no credentials are needed. CI adds **tflint** and a **Trivy** IaC scan. Step-by-step deployment, the
+architecture diagram and the cost table are in [infra/README.md](infra/README.md).
+
 ### Explainability
 
 `brent explain` (`evaluation/explain.py`) refits each model listed in `explain.models` on the development
@@ -575,6 +597,7 @@ Effect of the v2 features (same protocol; v1 = 14 features, v2 = 29 before the V
 ├── .github/                    # CI workflow, Dependabot, templates, CODEOWNERS, ruleset
 ├── Dockerfile / .dockerignore  # multi-stage inference image (uv, non-root, HEALTHCHECK)
 ├── docker-compose.yml          # API + dashboard + MLflow server (+ one-off trainer)
+├── infra/                      # Terraform for GCP: bootstrap (state, registry) + Cloud Run stack
 ├── Makefile
 └── pyproject.toml / uv.lock
 ```

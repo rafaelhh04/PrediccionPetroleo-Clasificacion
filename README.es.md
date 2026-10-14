@@ -229,6 +229,27 @@ lectura. En CI se construye la imagen, se valida el compose, se hace un smoke te
 liveness 200, readiness 503 sin registry) y se escanea con **Trivy** (falla si hay vulnerabilidades
 CRITICAL con corrección disponible).
 
+## Despliegue en cloud (GCP)
+
+[`infra/`](infra) describe con **Terraform** toda la infraestructura en Google Cloud, dimensionada para
+costar **~0 €/mes** como demo:
+
+- **Cloud Run**: la API y el dashboard por entorno (`staging`, `prod`) y una UI de MLflow privada; todo
+  escala a cero y se factura por petición. La API usa 1 vCPU / 1 GiB y concurrencia 8, según el p95 de
+  Locust (72 ms) y el techo de ~40 req/s de un proceso.
+- **Cloud Storage**: un bucket versionado con política de ciclo de vida. `data/`, `mlruns/` (store y
+  artefactos de MLflow) y `results/` se montan con GCS FUSE en las mismas rutas que en compose, en solo
+  lectura en la API y el dashboard. `dvc/` es el remote de DVC.
+- **Artifact Registry** (tags inmutables, limpieza automática), **Secret Manager** y una **cuenta de
+  servicio** por carga de trabajo con permisos solo sobre el bucket y cada secreto. Estado de Terraform en
+  GCS con bloqueo.
+- **Backend de MLflow**: SQLite en el bucket por defecto (gratis, un único escritor) o **Cloud SQL**
+  PostgreSQL con una variable (`mlflow_backend = "cloudsql"`, ~9–10 USD/mes).
+
+`make infra-check` ejecuta `terraform fmt`/`validate` y `terraform test` con *providers* simulados (sin
+credenciales); CI añade **tflint** y el escaneo IaC de **Trivy**. Pasos de despliegue, diagrama y tabla de
+costes en [infra/README.md](infra/README.md).
+
 ## Resultados (AUC-ROC)
 
 > **¿Qué cifras son reales?** Solo la primera tabla (ejecución antigua del código original con los datos de
@@ -293,6 +314,7 @@ de 50 estimaciones ruidosas) y cayó a 0.450 fuera de muestra.
 ├── .github/                    # CI, Dependabot, plantillas, CODEOWNERS, ruleset
 ├── Dockerfile / .dockerignore  # imagen de inferencia multi-stage (uv, no root, HEALTHCHECK)
 ├── docker-compose.yml          # API + dashboard + servidor MLflow (+ trainer puntual)
+├── infra/                      # Terraform para GCP: bootstrap (estado, registry) + stack de Cloud Run
 ├── Makefile
 └── pyproject.toml / uv.lock
 ```
