@@ -56,6 +56,7 @@ resource "google_service_account_iam_member" "deployer_act_as" {
     api       = google_service_account.api.name
     dashboard = google_service_account.dashboard.name
     mlflow    = google_service_account.mlflow.name
+    trainer   = google_service_account.trainer.name
   }
 
   service_account_id = each.value

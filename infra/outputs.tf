@@ -34,5 +34,12 @@ output "service_accounts" {
     api       = google_service_account.api.email
     dashboard = google_service_account.dashboard.email
     mlflow    = google_service_account.mlflow.email
+    trainer   = google_service_account.trainer.email
+    scheduler = google_service_account.scheduler.email
   }
+}
+
+output "jobs" {
+  description = "Scheduled Cloud Run jobs (run one now: gcloud run jobs execute <name> --region <region>)."
+  value       = { for k, job in google_cloud_run_v2_job.this : k => job.name }
 }

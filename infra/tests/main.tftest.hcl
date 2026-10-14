@@ -80,6 +80,49 @@ run "read_only_mounts_for_the_api_and_dashboard" {
   }
 }
 
+run "scheduled_jobs" {
+  command = plan
+
+  assert {
+    condition     = google_cloud_run_v2_job.this["retrain"].template[0].template[0].containers[0].args == tolist(["retrain", "--stage-store"])
+    error_message = "The retraining job publishes the SQLite store only after a successful run."
+  }
+  assert {
+    condition     = google_cloud_scheduler_job.this["retrain"].schedule == "0 6 * * 1" && google_cloud_scheduler_job.this["ingest"].schedule == "30 22 * * 1-5"
+    error_message = "Weekly retraining and daily ingestion by default."
+  }
+  assert {
+    condition     = alltrue([for m in google_cloud_run_v2_job_iam_member.scheduler : m.role == "roles/run.invoker"])
+    error_message = "The scheduler may only start the jobs."
+  }
+  assert {
+    condition = alltrue([
+      for e in google_cloud_run_v2_job.this["retrain"].template[0].template[0].containers[0].env : e.name != "BRENT_NOTIFY__WEBHOOK_URL"
+    ])
+    error_message = "No webhook secret until notify_webhook = true (an empty secret would break the job)."
+  }
+  assert {
+    condition     = length(google_cloud_scheduler_job.this) <= 3
+    error_message = "Cloud Scheduler is free for up to 3 jobs per billing account."
+  }
+}
+
+run "notifications_enabled" {
+  command = plan
+
+  variables {
+    notify_webhook = true
+  }
+
+  assert {
+    condition = anytrue([
+      for e in google_cloud_run_v2_job.this["retrain"].template[0].template[0].containers[0].env :
+      e.name == "BRENT_NOTIFY__WEBHOOK_URL" && length(e.value_source) == 1
+    ])
+    error_message = "The webhook URL comes from Secret Manager."
+  }
+}
+
 run "private_services" {
   command = plan
 
