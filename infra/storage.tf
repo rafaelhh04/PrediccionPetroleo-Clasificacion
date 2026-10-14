@@ -5,8 +5,12 @@
 #   results/       reports, plots and explanations shown by the dashboard
 #   dvc/           DVC remote (content-addressed cache): `dvc remote add gcs gs://<bucket>/dvc`
 # Google-managed encryption keys: a customer-managed KMS key adds cost and key management
-# without a compliance requirement to meet.
+# without a compliance requirement to meet. No legacy usage logs (CSV objects in another
+# bucket): Cloud Audit Logs already record who changes the bucket and its IAM, and Google
+# recommends them over usage logs.
 #trivy:ignore:AVD-GCP-0066
+#trivy:ignore:AVD-GCP-0077
+#trivy:ignore:GCP-0077
 resource "google_storage_bucket" "ml" {
   name                        = local.bucket
   location                    = var.region

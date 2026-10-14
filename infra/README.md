@@ -164,7 +164,7 @@ make infra-check   # terraform fmt -check, validate (both stacks, no backend) an
 
 CI (`infra` job) runs the same with pinned images plus **tflint** (terraform + google rulesets)
 and **Trivy IaC** (fails on MEDIUM or above, for both MLflow backends). Accepted findings are
-annotated in place with the reason: Google-managed bucket encryption keys (`AVD-GCP-0066`, LOW)
+annotated in place with the reason: Google-managed bucket encryption keys (`AVD-GCP-0066`, LOW), no legacy bucket usage logs (`GCP-0077`; Cloud Audit Logs instead)
 and the Cloud SQL public IP without authorized networks (`AVD-GCP-0017`).
 
 ## Cost

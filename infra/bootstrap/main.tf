@@ -10,8 +10,12 @@ resource "google_project_service" "this" {
 # The GCS backend locks the state with a lock object (no extra table needed);
 # object versioning keeps earlier states to recover from a bad apply.
 # Google-managed encryption keys: a customer-managed KMS key adds cost and key management
-# without a compliance requirement to meet.
+# without a compliance requirement to meet. No legacy usage logs (CSV objects in another
+# bucket): Cloud Audit Logs already record who changes the bucket and its IAM, and Google
+# recommends them over usage logs.
 #trivy:ignore:AVD-GCP-0066
+#trivy:ignore:AVD-GCP-0077
+#trivy:ignore:GCP-0077
 resource "google_storage_bucket" "tfstate" {
   name                        = "${var.project_id}-tfstate"
   location                    = var.region
