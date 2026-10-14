@@ -1,0 +1,125 @@
+name: Deploy to an environment
+
+# Reusable rollout of one environment, used by cd.yml for staging and production:
+#   1. record the revisions serving now (the rollback target);
+#   2. deploy the new image as a revision tagged `candidate` with NO traffic;
+#   3. smoke-test the candidate through its own URL (scripts/smoke_test.py);
+#   4. only then move 100 % of the traffic to it.
+# A failed smoke test leaves users on the previous revision: nothing to roll back.
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub environment (protection rules, WIF principal).
+        required: true
+        type: string
+      suffix:
+        description: Suffix of the Cloud Run services (brent-api-<suffix>, brent-dashboard-<suffix>).
+        required: true
+        type: string
+      api-image:
+        description: API image by digest.
+        required: true
+        type: string
+      dashboard-image:
+        description: Dashboard image by digest.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ steps.urls.outputs.dashboard }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      REGION: ${{ vars.GCP_REGION }}
+      API: brent-api-${{ inputs.suffix }}
+      DASHBOARD: brent-dashboard-${{ inputs.suffix }}
+      API_IMAGE: ${{ inputs.api-image }}
+      DASHBOARD_IMAGE: ${{ inputs.dashboard-image }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Record the serving revisions (rollback targets)
+        id: previous
+        run: |
+          for svc in "$API" "$DASHBOARD"; do
+            rev=$(gcloud run services describe "$svc" --region "$REGION" --format=json \
+              | jq -r '[.status.traffic[] | select(.percent == 100) | .revisionName][0] // "none"')
+            echo "${svc//-/_}=$rev" >> "$GITHUB_OUTPUT"
+            echo "- \`$svc\` was serving \`$rev\`" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Deploy the candidate revisions (no traffic)
+        run: |
+          gcloud run services update "$API" --region "$REGION" --image "$API_IMAGE" \
+            --tag candidate --no-traffic --quiet
+          gcloud run services update "$DASHBOARD" --region "$REGION" --image "$DASHBOARD_IMAGE" \
+            --tag candidate --no-traffic --quiet
+
+      - name: Candidate URLs
+        id: candidate
+        run: |
+          for svc in API DASHBOARD; do
+            url=$(gcloud run services describe "${!svc}" --region "$REGION" --format=json \
+              | jq -r '.status.traffic[] | select(.tag == "candidate") | .url')
+            echo "${svc,,}=$url" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Smoke test the API candidate (/health 200 with a model loaded)
+        run: python3 scripts/smoke_test.py "${{ steps.candidate.outputs.api }}"
+
+      - name: Smoke test the dashboard candidate
+        env:
+          URL: ${{ steps.candidate.outputs.dashboard }}
+        run: |
+          for _ in $(seq 12); do
+            curl --silent --fail --max-time 30 "$URL/_stcore/health" && exit 0
+            sleep 10
+          done
+          echo "::error::The dashboard candidate never became healthy"
+          exit 1
+
+      - name: Promote the candidates (100 % of the traffic)
+        run: |
+          gcloud run services update-traffic "$API" --region "$REGION" --to-tags candidate=100 --quiet
+          gcloud run services update-traffic "$DASHBOARD" --region "$REGION" --to-tags candidate=100 --quiet
+
+      - name: Service URLs
+        id: urls
+        run: |
+          for svc in API DASHBOARD; do
+            url=$(gcloud run services describe "${!svc}" --region "$REGION" --format='value(status.url)')
+            echo "${svc,,}=$url" >> "$GITHUB_OUTPUT"
+            echo "- \`${!svc}\`: $url" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Rollback instructions
+        if: always()
+        env:
+          PREVIOUS_API: ${{ steps.previous.outputs[format('brent_api_{0}', inputs.suffix)] }}
+          PREVIOUS_DASHBOARD: ${{ steps.previous.outputs[format('brent_dashboard_{0}', inputs.suffix)] }}
+        run: |
+          {
+            echo "### Rollback"
+            echo "Run the **Rollback** workflow, or:"
+            echo '```bash'
+            echo "gcloud run services update-traffic $API --region $REGION --to-revisions $PREVIOUS_API=100"
+            echo "gcloud run services update-traffic $DASHBOARD --region $REGION --to-revisions $PREVIOUS_DASHBOARD=100"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

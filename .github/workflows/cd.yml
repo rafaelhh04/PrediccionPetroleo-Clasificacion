@@ -1,0 +1,143 @@
+name: CD
+
+# Continuous deployment to Cloud Run on every merge to main that changes the image:
+#   build once -> push (tag = commit SHA) -> attest provenance -> staging -> [approval] -> production
+# The same digest is deployed to both environments. Authentication is keyless (OIDC ->
+# Workload Identity Federation, see infra/bootstrap/github_oidc.tf): no long-lived secrets.
+# Without the GCP repository variables the workflow only reports that CD is disabled.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "configs/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "scripts/smoke_test.py"
+      - ".github/workflows/cd.yml"
+      - ".github/workflows/deploy-environment.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false # never interrupt a rollout halfway
+
+env:
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: ${{ vars.GCP_REGION }}
+  REPOSITORY: ${{ vars.GCP_ARTIFACT_REPOSITORY || 'brent' }}
+
+jobs:
+  configured:
+    name: GCP configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          DEPLOYER: ${{ vars.GCP_DEPLOYER_SA }}
+        run: |
+          if [ -n "$PROJECT_ID" ] && [ -n "$REGION" ] && [ -n "$PROVIDER" ] && [ -n "$DEPLOYER" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=CD disabled::Set GCP_PROJECT_ID, GCP_REGION, GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_DEPLOYER_SA (repository variables, see infra/README.md) to deploy."
+          fi
+
+  build:
+    name: Build, push and attest
+    needs: configured
+    if: needs.configured.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Only jobs bound to an environment can impersonate the deployer (WIF principal set).
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write # OIDC token for Workload Identity Federation
+      attestations: write # build provenance (Sigstore)
+    outputs:
+      api: ${{ steps.push.outputs.api }}
+      dashboard: ${{ steps.push.outputs.dashboard }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+          token_format: access_token
+      - uses: google-github-actions/setup-gcloud@v3
+      - uses: docker/setup-buildx-action@v4
+      - name: Log in to Artifact Registry
+        env:
+          TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: echo "$TOKEN" | docker login -u oauth2accesstoken --password-stdin "https://$REGION-docker.pkg.dev"
+      - name: Build and push (tag = commit SHA, reused if it already exists)
+        id: push
+        run: |
+          registry="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY"
+          for pair in runtime:api dashboard:dashboard; do
+            target=${pair%%:*} image=${pair##*:}
+            ref="$registry/$image:$GITHUB_SHA"
+            # Tags are immutable: a re-run of this commit reuses the image instead of failing.
+            digest=$(gcloud artifacts docker images describe "$ref" --format='value(image_summary.digest)' 2>/dev/null || true)
+            if [ -z "$digest" ]; then
+              docker buildx build . --target "$target" --tag "$ref" --push \
+                --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+                --cache-from "type=gha,scope=$image" --cache-to "type=gha,mode=max,scope=$image" \
+                --metadata-file "$image.json"
+              digest=$(jq -r '."containerimage.digest"' "$image.json")
+            fi
+            echo "$image=$registry/$image@$digest" >> "$GITHUB_OUTPUT"
+            echo "${image}_digest=$digest" >> "$GITHUB_OUTPUT"
+            echo "- \`$image\`: \`$registry/$image@$digest\`" >> "$GITHUB_STEP_SUMMARY"
+          done
+      - name: Attest provenance (api)
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/api
+          subject-digest: ${{ steps.push.outputs.api_digest }}
+          push-to-registry: true
+      - name: Attest provenance (dashboard)
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/dashboard
+          subject-digest: ${{ steps.push.outputs.dashboard_digest }}
+          push-to-registry: true
+
+  staging:
+    name: Staging
+    needs: build
+    uses: ./.github/workflows/deploy-environment.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      environment: staging
+      suffix: staging
+      api-image: ${{ needs.build.outputs.api }}
+      dashboard-image: ${{ needs.build.outputs.dashboard }}
+
+  production:
+    name: Production
+    needs: [build, staging]
+    uses: ./.github/workflows/deploy-environment.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      # Required reviewers on this GitHub environment turn this job into a manual approval.
+      environment: production
+      suffix: prod
+      api-image: ${{ needs.build.outputs.api }}
+      dashboard-image: ${{ needs.build.outputs.dashboard }}
