@@ -141,3 +141,5 @@ jobs:
       suffix: prod
       api-image: ${{ needs.build.outputs.api }}
       dashboard-image: ${{ needs.build.outputs.dashboard }}
+      # The scheduled jobs write the production registry: they follow the production release.
+      jobs: brent-retrain brent-ingest
