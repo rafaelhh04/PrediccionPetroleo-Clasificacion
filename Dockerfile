@@ -6,8 +6,9 @@
 #   docker run --rm -p 8000:8000 -v "$PWD/mlruns:/app/mlruns" -v "$PWD/data:/app/data:ro" brent-forecast
 #
 # `builder` resolves the locked runtime dependencies with uv (no dev or load-test groups), plus
-# the `postgres` extra (MLflow backend store on Cloud SQL, see infra/), into /app/.venv;
-# `builder-dashboard` swaps that extra for `dashboard` (uv sync is exact). The final images start
+# the `postgres` (MLflow backend store on Cloud SQL, see infra/) and `monitoring` (Evidently drift
+# reports, run by the same image as a job) extras, into /app/.venv; `builder-dashboard` swaps
+# them for `dashboard` (uv sync is exact). The final images start
 # from `base` (slim Debian, unprivileged user) and copy only their environment and the
 # configuration. `runtime` (the API) is the last stage, so it is what a plain build produces.
 
@@ -27,13 +28,13 @@ WORKDIR /src
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --frozen --no-dev --no-install-project --extra postgres
+    uv sync --frozen --no-dev --no-install-project --extra postgres --extra monitoring
 
 # Then the project itself, installed as a regular (non-editable) package.
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-editable --extra postgres
+    uv sync --frozen --no-dev --no-editable --extra postgres --extra monitoring
 
 # ── dashboard dependencies ────────────────────────────────────
 FROM builder AS builder-dashboard
@@ -63,6 +64,7 @@ ENV PATH=/app/.venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     MLFLOW_DISABLE_AGENT_HINT=1 \
     MLFLOW_ENABLE_ARTIFACTS_PROGRESS_BAR=false \
+    ITERATIVE_DO_NOT_TRACK=do-not-track \
     GIT_PYTHON_REFRESH=quiet \
     BRENT_LOG_FORMAT=json \
     MPLCONFIGDIR=/tmp/matplotlib
