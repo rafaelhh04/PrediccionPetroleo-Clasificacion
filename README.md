@@ -484,9 +484,19 @@ at **~0 €/month** for a demo:
   PostgreSQL with one variable (`mlflow_backend = "cloudsql"`, ~9–10 USD/month). The trade-off is
   documented in [infra/README.md](infra/README.md).
 
+**Continuous deployment** ([`cd.yml`](.github/workflows/cd.yml)) runs on every merge to `main` that
+changes the image. GitHub Actions authenticates through **OIDC and Workload Identity Federation**, with no
+keys or long-lived secrets. Each commit is built once and tagged with its SHA. The images are pushed to
+Artifact Registry with a **build provenance attestation**, and the same digest is deployed to **staging**
+and then, after a manual approval, to **production**. Each rollout starts a no-traffic `candidate`
+revision and [smoke-tests](scripts/smoke_test.py) it (`/health` = 200 with the model loaded, a prediction,
+a 422). Only then does the traffic move. Rollback is a traffic switch to the previous revision
+([`rollback.yml`](.github/workflows/rollback.yml)).
+
 `make infra-check` runs `terraform fmt`/`validate` and plan-level `terraform test` with mocked providers,
-so no credentials are needed. CI adds **tflint** and a **Trivy** IaC scan. Step-by-step deployment, the
-architecture diagram and the cost table are in [infra/README.md](infra/README.md).
+so no credentials are needed. CI adds **tflint**, a **Trivy** IaC scan and **actionlint**, plus
+`terraform plan` with a read-only identity once GCP is configured. Step-by-step deployment, the
+architecture diagrams and the cost table are in [infra/README.md](infra/README.md).
 
 ### Explainability
 
@@ -597,7 +607,8 @@ Effect of the v2 features (same protocol; v1 = 14 features, v2 = 29 before the V
 ├── .github/                    # CI workflow, Dependabot, templates, CODEOWNERS, ruleset
 ├── Dockerfile / .dockerignore  # multi-stage inference image (uv, non-root, HEALTHCHECK)
 ├── docker-compose.yml          # API + dashboard + MLflow server (+ one-off trainer)
-├── infra/                      # Terraform for GCP: bootstrap (state, registry) + Cloud Run stack
+├── infra/                      # Terraform for GCP: bootstrap (state, registry, WIF) + Cloud Run stack
+├── scripts/smoke_test.py       # post-deployment check used by the CD workflow
 ├── Makefile
 └── pyproject.toml / uv.lock
 ```

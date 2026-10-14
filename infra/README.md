@@ -30,7 +30,7 @@ flowchart LR
 
 | Path | What | State |
 |------|------|-------|
-| [`bootstrap/`](bootstrap) | Project APIs, Terraform state bucket (versioned), Artifact Registry repository (immutable tags, cleanup policy). Applied once by a project owner. | local (can be migrated to GCS) |
+| [`bootstrap/`](bootstrap) | Project APIs, Terraform state bucket (versioned), Artifact Registry repository (immutable tags, cleanup policy), Workload Identity Federation for GitHub Actions with the deployer and planner service accounts. Applied once by a project owner. | local (can be migrated to GCS) |
 | [`./`](.) | ML bucket, service accounts, Secret Manager, Cloud Run services (API and dashboard per environment, MLflow UI), optional Cloud SQL, optional budget alert. | GCS (`<project>-tfstate`, prefix `brent-forecast/main`), locked |
 | [`tests/`](tests) | `terraform test` with mocked providers: plan-level assertions (scale to zero, read-only mounts, Cloud SQL toggle) without credentials. | — |
 
@@ -112,7 +112,7 @@ cd infra/bootstrap
 terraform init
 terraform apply -var project_id="$PROJECT_ID" -var region="$REGION"
 
-# 2. First images (later pushes come from CI, see .github/workflows/).
+# 2. First images (later pushes come from the CD workflow, see below).
 REPO=$(terraform output -raw image_repository)
 TAG=$(git rev-parse HEAD)
 gcloud auth configure-docker "$REGION-docker.pkg.dev"
@@ -156,10 +156,76 @@ terraform init -migrate-state -backend-config="bucket=$PROJECT_ID-tfstate"
 **Tear down:** `terraform destroy` in `infra/` and then in `infra/bootstrap/` (with
 `deletion_protection = false`, the default; the state bucket is never force-destroyed).
 
+## Continuous deployment (GitHub Actions)
+
+```mermaid
+flowchart LR
+    M[merge to main] --> B["build<br/>tag = SHA, push, attest"]
+    B --> S1["staging: candidate revision<br/>(no traffic)"]
+    S1 --> T1{smoke test}
+    T1 -->|ok| P1[staging: 100 % traffic]
+    T1 -->|fail| X1[stop: users stay<br/>on the old revision]
+    P1 --> A{{"approval<br/>(production environment)"}}
+    A --> S2["production: candidate"] --> T2{smoke test}
+    T2 -->|ok| P2[production: 100 % traffic]
+    T2 -->|fail| X2[stop]
+```
+
+- **Keyless.** [`cd.yml`](../.github/workflows/cd.yml) authenticates with the job's OIDC token
+  through Workload Identity Federation ([`bootstrap/github_oidc.tf`](bootstrap/github_oidc.tf)).
+  The provider only accepts tokens of this repository (name **and** owner id). The deployer
+  service account can be impersonated only by jobs bound to the `staging` or `production` GitHub
+  environment, so the environment rules (branch `main`, required reviewers) are part of the
+  authorization. No JSON key or long-lived secret exists.
+- **Build once, promote the digest.** Images are tagged with the commit SHA (immutable tags; a
+  re-run reuses them) and deployed **by digest**, so production runs the exact bytes that passed
+  staging. Each image gets a [GitHub build provenance attestation](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations)
+  (Sigstore), also pushed to Artifact Registry:
+  `gh attestation verify oci://<region>-docker.pkg.dev/<project>/brent/api@sha256:<digest> --owner rafaelhh04`.
+- **Candidate → smoke test → traffic.** [`deploy-environment.yml`](../.github/workflows/deploy-environment.yml)
+  deploys a revision tagged `candidate` with no traffic and runs
+  [`scripts/smoke_test.py`](../scripts/smoke_test.py) against its own URL:
+  - liveness;
+  - `/health` = 200 with a model loaded (polled through the cold start);
+  - `/model-info`;
+  - a prediction;
+  - a 422 for invalid input.
+
+  Only then does the traffic move. A failed check leaves users on the previous revision.
+- **Rollback** is a traffic switch, not a redeploy (seconds). Run the manual
+  [`rollback.yml`](../.github/workflows/rollback.yml) workflow with the revision names (every CD run
+  lists the previous ones in its summary), or:
+  `gcloud run services update-traffic brent-api-prod --region <region> --to-revisions <revision>=100`.
+  Cloud Run keeps old revisions, and Artifact Registry keeps the last 10 images.
+- **`terraform plan` in CI** (`infra-plan` job) runs with the read-only planner identity on pull
+  requests and on `main` once `GCP_PLANNER_SA` is set. Extra variables can go in `GCP_TFVARS`.
+
+### Setting it up
+
+1. Apply `infra/bootstrap` (see above) and note its outputs.
+2. Repository **variables** (Settings → Secrets and variables → Actions → Variables). None of them
+   is a secret:
+
+   | Variable | Value |
+   |----------|-------|
+   | `GCP_PROJECT_ID` | project id |
+   | `GCP_REGION` | e.g. `us-central1` |
+   | `GCP_WORKLOAD_IDENTITY_PROVIDER` | `terraform output -raw workload_identity_provider` |
+   | `GCP_DEPLOYER_SA` | `terraform output -raw deployer_service_account` |
+   | `GCP_PLANNER_SA` | `terraform output -raw planner_service_account` (optional: enables the plan job) |
+   | `GCP_TFVARS` | optional HCL for the plan, e.g. `mlflow_ui_members = ["user:me@example.com"]` |
+
+3. **Environments** (Settings → Environments): `staging` with deployment branches limited to
+   `main`; `production` with the same branch rule and **required reviewers** (the manual
+   approval).
+4. Apply `infra/` (it grants the deployer `serviceAccountUser` on the runtime accounts), then
+   merge to `main` or run **CD** manually. The API smoke test needs a registered champion (see the
+   retraining job), otherwise the rollout stops at staging with users on the previous revision.
+
 ## Checks without credentials
 
 ```bash
-make infra-check   # terraform fmt -check, validate (both stacks, no backend) and terraform test
+make infra-check   # terraform fmt -check, validate and terraform test (both stacks, no backend)
 ```
 
 CI (`infra` job) runs the same with pinned images plus **tflint** (terraform + google rulesets)
