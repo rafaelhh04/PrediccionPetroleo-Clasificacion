@@ -10,6 +10,9 @@ from brent_forecast.dashboard.data import (
     Provenance,
     backtest_table,
     candidates_table,
+    drift_history,
+    drift_report,
+    drift_summary,
     load_report,
     plot,
     price_history,
@@ -163,13 +166,55 @@ def _explanations(settings: Settings) -> None:
             column.image(str(figure), caption=caption)
 
 
+def _monitoring(settings: Settings) -> None:
+    summary = drift_summary(settings)
+    if summary is None:
+        st.info("No drift report yet: run `brent monitor drift`.")
+        return
+    current, reference = summary["current"], summary["reference"]
+    if summary["alert"]:
+        st.error(" · ".join(r for r in summary["reasons"] if r.startswith("ALERT")), icon="🚨")
+    else:
+        st.success("No drift alert on the latest data.", icon="✅")
+    cols = st.columns(3)
+    cols[0].metric("Drifted features", f"{summary['drifted_share']:.0%}")
+    prediction = summary["prediction_drift"]
+    cols[1].metric(
+        "Prediction drift", "n/a" if prediction is None else "yes" if prediction else "no"
+    )
+    cols[2].metric("Current window", f"{current['start']} → {current['end']}")
+    st.caption(
+        f"{current['rows']} recent days ({summary['source']} data) vs. {reference['rows']} "
+        f"reference days ({reference['start']} → {reference['end']}) · generated "
+        f"{summary['generated_at'][:16]} UTC · Evidently per-column tests"
+    )
+    tests = pd.DataFrame(summary["columns"])
+    if not tests.empty:
+        st.dataframe(
+            tests.sort_values(["drifted", "column"], ascending=[False, True]),
+            hide_index=True,
+            column_config={"score": st.column_config.NumberColumn("score", format="%.4f")},
+        )
+    history = drift_history(settings)
+    if len(history) > 1:
+        st.line_chart(history, x="current_end", y="drifted_share", x_label="", y_label="share")
+    report = drift_report(settings)
+    if report:
+        st.download_button(
+            "Download the full Evidently report (HTML)",
+            report.read_bytes(),
+            file_name="drift_report.html",
+            mime="text/html",
+        )
+
+
 def render(settings: Settings, client: ApiClient) -> None:
     """Draw the whole page."""
     st.set_page_config(page_title="Brent direction demo", page_icon="🛢️", layout="wide")
     st.title("Brent next-day direction")
     _banner(provenance(settings))
     _prediction(client)
-    tabs = st.tabs(["Prices", "Statistical report", "Backtest", "Explanations"])
+    tabs = st.tabs(["Prices", "Statistical report", "Backtest", "Explanations", "Monitoring"])
     with tabs[0]:
         _prices(settings)
     with tabs[1]:
@@ -178,5 +223,7 @@ def render(settings: Settings, client: ApiClient) -> None:
         _backtest(settings)
     with tabs[3]:
         _explanations(settings)
+    with tabs[4]:
+        _monitoring(settings)
     st.divider()
     st.caption(DISCLAIMER)
