@@ -143,3 +143,10 @@ variable "budget" {
   })
   default = {}
 }
+
+# ── continuous deployment ──────────────────────────────────────
+variable "deployer_service_account" {
+  description = "Service account of the CD workflow (output of ./bootstrap). Default: brent-deployer@<project>."
+  type        = string
+  default     = null
+}

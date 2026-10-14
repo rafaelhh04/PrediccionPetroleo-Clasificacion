@@ -131,6 +131,7 @@ resource "google_cloud_run_v2_service" "api" {
       template[0].containers[0].image,
       client,
       client_version,
+      traffic, # CD tags the candidate revision and moves traffic after the smoke test
     ]
   }
 
@@ -231,6 +232,7 @@ resource "google_cloud_run_v2_service" "dashboard" {
       template[0].containers[0].image,
       client,
       client_version,
+      traffic, # CD tags the candidate revision and moves traffic after the smoke test
     ]
   }
 

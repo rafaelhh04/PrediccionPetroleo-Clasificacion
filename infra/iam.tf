@@ -48,3 +48,17 @@ resource "google_project_iam_member" "cloudsql_client" {
   role    = "roles/cloudsql.client"
   member  = each.value
 }
+
+# The CD workflow deploys revisions that run as these accounts: it must be allowed to "act as"
+# each of them, and nothing else (no project-wide serviceAccountUser).
+resource "google_service_account_iam_member" "deployer_act_as" {
+  for_each = {
+    api       = google_service_account.api.name
+    dashboard = google_service_account.dashboard.name
+    mlflow    = google_service_account.mlflow.name
+  }
+
+  service_account_id = each.value
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${local.deployer}"
+}
