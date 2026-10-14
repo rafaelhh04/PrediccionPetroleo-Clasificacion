@@ -1,0 +1,68 @@
+name: Rollback
+
+# Manual rollback of one environment: send 100 % of the traffic back to an earlier Cloud Run
+# revision (no rebuild, no redeploy; takes seconds). The revision names are listed in the
+# summary of every CD run, or with:
+#   gcloud run revisions list --service brent-api-prod --region <region>
+# The job runs in the target GitHub environment, so production still needs its approval.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to roll back.
+        required: true
+        type: choice
+        options: [staging, production]
+      api-revision:
+        description: API revision to serve (e.g. brent-api-prod-00012-abc). Empty = leave as is.
+        required: false
+        type: string
+      dashboard-revision:
+        description: Dashboard revision to serve. Empty = leave as is.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-refs/heads/main # never at the same time as a deployment
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Roll back (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      REGION: ${{ vars.GCP_REGION }}
+      SUFFIX: ${{ inputs.environment == 'production' && 'prod' || 'staging' }}
+      API_REVISION: ${{ inputs.api-revision }}
+      DASHBOARD_REVISION: ${{ inputs.dashboard-revision }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Move the traffic
+        run: |
+          if [ -n "$API_REVISION" ]; then
+            gcloud run services update-traffic "brent-api-$SUFFIX" --region "$REGION" \
+              --to-revisions "$API_REVISION=100" --quiet
+          fi
+          if [ -n "$DASHBOARD_REVISION" ]; then
+            gcloud run services update-traffic "brent-dashboard-$SUFFIX" --region "$REGION" \
+              --to-revisions "$DASHBOARD_REVISION=100" --quiet
+          fi
+      - name: Check the API after the rollback
+        if: inputs.api-revision != ''
+        run: |
+          url=$(gcloud run services describe "brent-api-$SUFFIX" --region "$REGION" --format='value(status.url)')
+          python3 scripts/smoke_test.py "$url"

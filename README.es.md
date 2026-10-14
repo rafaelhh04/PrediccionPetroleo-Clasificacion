@@ -246,8 +246,17 @@ costar **~0 €/mes** como demo:
 - **Backend de MLflow**: SQLite en el bucket por defecto (gratis, un único escritor) o **Cloud SQL**
   PostgreSQL con una variable (`mlflow_backend = "cloudsql"`, ~9–10 USD/mes).
 
+**Despliegue continuo** ([`cd.yml`](.github/workflows/cd.yml)): cada merge a `main` que cambia la imagen
+se despliega sin claves (**OIDC + Workload Identity Federation**). Cada commit se construye una sola vez
+con el SHA como tag y se sube a Artifact Registry con **atestación de procedencia**. El mismo digest va a
+**staging** y, tras una aprobación manual, a **producción**. Cada despliegue crea primero una revisión
+`candidate` sin tráfico y le pasa un [smoke test](scripts/smoke_test.py) (`/health` = 200 con modelo
+cargado, una predicción, un 422). Solo entonces mueve el tráfico. El rollback es un cambio de tráfico a
+la revisión anterior ([`rollback.yml`](.github/workflows/rollback.yml)).
+
 `make infra-check` ejecuta `terraform fmt`/`validate` y `terraform test` con *providers* simulados (sin
-credenciales); CI añade **tflint** y el escaneo IaC de **Trivy**. Pasos de despliegue, diagrama y tabla de
+credenciales). CI añade **tflint**, el escaneo IaC de **Trivy**, **actionlint** y un `terraform plan` con
+una identidad de solo lectura cuando GCP está configurado. Pasos de despliegue, diagramas y tabla de
 costes en [infra/README.md](infra/README.md).
 
 ## Resultados (AUC-ROC)
@@ -314,7 +323,8 @@ de 50 estimaciones ruidosas) y cayó a 0.450 fuera de muestra.
 ├── .github/                    # CI, Dependabot, plantillas, CODEOWNERS, ruleset
 ├── Dockerfile / .dockerignore  # imagen de inferencia multi-stage (uv, no root, HEALTHCHECK)
 ├── docker-compose.yml          # API + dashboard + servidor MLflow (+ trainer puntual)
-├── infra/                      # Terraform para GCP: bootstrap (estado, registry) + stack de Cloud Run
+├── infra/                      # Terraform para GCP: bootstrap (estado, registry, WIF) + stack de Cloud Run
+├── scripts/smoke_test.py       # comprobación post-despliegue usada por el CD
 ├── Makefile
 └── pyproject.toml / uv.lock
 ```

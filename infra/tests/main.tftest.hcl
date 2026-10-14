@@ -71,6 +71,13 @@ run "read_only_mounts_for_the_api_and_dashboard" {
     condition     = length(google_cloud_run_v2_service_iam_member.mlflow_ui) == 0
     error_message = "The MLflow UI is never public."
   }
+  assert {
+    condition = alltrue([
+      for m in google_service_account_iam_member.deployer_act_as :
+      m.member == "serviceAccount:brent-deployer@demo-project.iam.gserviceaccount.com" && m.role == "roles/iam.serviceAccountUser"
+    ])
+    error_message = "The CD deployer may act as the runtime service accounts only."
+  }
 }
 
 run "private_services" {

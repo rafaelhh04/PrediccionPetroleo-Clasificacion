@@ -6,6 +6,7 @@ locals {
     dashboard = "${local.registry}/dashboard:${var.image_tag}"
   }
   cloudsql = var.mlflow_backend == "cloudsql"
+  deployer = coalesce(var.deployer_service_account, "brent-deployer@${var.project_id}.iam.gserviceaccount.com")
 
   # Every container mounts the bucket folders at the paths used by docker-compose, so the
   # absolute artefact locations MLflow records (file:///app/mlruns/artifacts/...) resolve

@@ -38,3 +38,21 @@ variable "services" {
     "sts.googleapis.com",
   ]
 }
+
+variable "github_repository" {
+  description = "owner/name of the GitHub repository allowed to authenticate (Workload Identity Federation)."
+  type        = string
+  default     = "rafaelhh04/PrediccionPetroleo-Clasificacion"
+}
+
+variable "github_repository_owner_id" {
+  description = "Numeric id of the repository owner: survives a rename of the account (no takeover by a new owner of the old name)."
+  type        = string
+  default     = "132058207"
+}
+
+variable "deploy_environments" {
+  description = "GitHub environments whose jobs may impersonate the deployer service account."
+  type        = set(string)
+  default     = ["staging", "production"]
+}

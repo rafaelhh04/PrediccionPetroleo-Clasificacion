@@ -61,6 +61,7 @@ infra-check: ## Terraform: fmt check, validate both stacks (no backend) and plan
 	$(TERRAFORM) -chdir=infra fmt -recursive -check
 	$(TERRAFORM) -chdir=infra/bootstrap init -backend=false -input=false
 	$(TERRAFORM) -chdir=infra/bootstrap validate
+	$(TERRAFORM) -chdir=infra/bootstrap test
 	$(TERRAFORM) -chdir=infra init -backend=false -input=false
 	$(TERRAFORM) -chdir=infra validate
 	$(TERRAFORM) -chdir=infra test
