@@ -1,6 +1,7 @@
 # Scheduled work: Cloud Run Jobs started by Cloud Scheduler (both inside the free tiers).
 #
 #   brent-ingest   Mon-Fri  `brent data ingest`       appends the new trading days to data/live/
+#   brent-drift    Mon-Fri  `brent monitor drift`     Evidently data + prediction drift, alert
 #   brent-retrain  weekly   `brent retrain`           ingest -> train -> report + promotion -> explain
 #
 # The retraining job is the registry writer: it works on a local copy of mlflow.db and replaces the
@@ -56,14 +57,22 @@ locals {
       cpu     = var.retrain.cpu
       memory  = var.retrain.memory
       timeout = var.retrain.timeout
-      mounts  = ["data", "mlruns", "results"]
+      mounts  = { data = false, mlruns = false, results = false } # folder => read-only
     }
     ingest = {
       args    = ["data", "ingest"]
       cpu     = "1"
       memory  = "1Gi"
       timeout = "600s"
-      mounts  = ["data"]
+      mounts  = { data = false }
+    }
+    # Reads the data and the served model (read-only), writes results/drift/.
+    drift = {
+      args    = ["monitor", "drift"]
+      cpu     = "1"
+      memory  = "2Gi"
+      timeout = "900s"
+      mounts  = { data = true, mlruns = true, results = false }
     }
   }
   job_secret_env = merge(
@@ -123,10 +132,10 @@ resource "google_cloud_run_v2_job" "this" {
         }
 
         dynamic "volume_mounts" {
-          for_each = toset(each.value.mounts)
+          for_each = each.value.mounts
           content {
-            name       = volume_mounts.value
-            mount_path = "${local.mount_root}/${volume_mounts.value}"
+            name       = volume_mounts.key
+            mount_path = "${local.mount_root}/${volume_mounts.key}"
           }
         }
         dynamic "volume_mounts" {
@@ -139,13 +148,13 @@ resource "google_cloud_run_v2_job" "this" {
       }
 
       dynamic "volumes" {
-        for_each = toset(each.value.mounts)
+        for_each = each.value.mounts
         content {
-          name = volumes.value
+          name = volumes.key
           gcs {
             bucket        = google_storage_bucket.ml.name
-            read_only     = false
-            mount_options = ["only-dir=${volumes.value}"]
+            read_only     = volumes.value
+            mount_options = ["only-dir=${volumes.key}"]
           }
         }
       }
@@ -176,7 +185,7 @@ resource "google_cloud_run_v2_job" "this" {
   ]
 }
 
-# The scheduler identity may start these two jobs and nothing else.
+# The scheduler identity may start these jobs and nothing else.
 resource "google_cloud_run_v2_job_iam_member" "scheduler" {
   for_each = google_cloud_run_v2_job.this
 
@@ -190,6 +199,7 @@ resource "google_cloud_scheduler_job" "this" {
   for_each = {
     retrain = var.retrain.schedule
     ingest  = var.ingest_schedule
+    drift   = var.drift_schedule
   }
 
   name             = "brent-${each.key}"

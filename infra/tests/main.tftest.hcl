@@ -105,6 +105,16 @@ run "scheduled_jobs" {
     condition     = length(google_cloud_scheduler_job.this) <= 3
     error_message = "Cloud Scheduler is free for up to 3 jobs per billing account."
   }
+  assert {
+    condition     = google_cloud_run_v2_job.this["drift"].template[0].template[0].containers[0].args == tolist(["monitor", "drift"])
+    error_message = "A daily drift job."
+  }
+  assert {
+    condition = {
+      for v in google_cloud_run_v2_job.this["drift"].template[0].template[0].volumes : v.name => v.gcs[0].read_only
+    } == { data = true, mlruns = true, results = false }
+    error_message = "The drift job only writes results/ (reads the data and the registry)."
+  }
 }
 
 run "notifications_enabled" {
