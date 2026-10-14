@@ -20,9 +20,11 @@ app = typer.Typer(
 data_app = typer.Typer(help="Acquire and verify the raw datasets.", no_args_is_help=True)
 config_app = typer.Typer(help="Inspect the resolved configuration.", no_args_is_help=True)
 registry_app = typer.Typer(help="Inspect the MLflow model registry.", no_args_is_help=True)
+monitor_app = typer.Typer(help="Monitor the served model in production.", no_args_is_help=True)
 app.add_typer(data_app, name="data")
 app.add_typer(config_app, name="config")
 app.add_typer(registry_app, name="registry")
+app.add_typer(monitor_app, name="monitor")
 
 
 @dataclass(frozen=True)
@@ -206,6 +208,43 @@ def retrain(
         typer.secho(f"Retraining failed: {type(exc).__name__}: {exc}", fg="red", err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(json.dumps(asdict(outcome), indent=2))
+
+
+@monitor_app.command("drift")
+def monitor_drift(
+    ctx: typer.Context,
+    predictions: Annotated[
+        bool,
+        typer.Option(
+            "--predictions/--no-predictions",
+            help="Load the served model to check prediction drift too.",
+        ),
+    ] = True,
+    notify_always: Annotated[
+        bool, typer.Option("--notify-always", help="Notify every run, not only alerts.")
+    ] = False,
+    fail_on_alert: Annotated[
+        bool, typer.Option("--fail-on-alert", help="Exit with code 2 when drift raises an alert.")
+    ] = False,
+) -> None:
+    """Check data and prediction drift of the latest days vs. the training data (Evidently).
+
+    Writes results/drift/report.html, summary.json and history.jsonl; alerts go to
+    notify.webhook_url. Prints the summary as JSON.
+    """
+    from dataclasses import asdict
+
+    from brent_forecast.monitoring.drift import run_and_notify
+
+    settings = _settings(ctx)
+    try:
+        summary = run_and_notify(settings, predictions=predictions, always=notify_always)
+    except (FileNotFoundError, ValueError) as exc:
+        typer.secho(f"Drift monitoring failed: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(json.dumps(asdict(summary), indent=2))
+    if summary.alert and fail_on_alert:
+        raise typer.Exit(code=2)
 
 
 @registry_app.command("show")

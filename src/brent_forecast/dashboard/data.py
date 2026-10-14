@@ -176,3 +176,32 @@ def plot(settings: Settings, name: str) -> Path | None:
     """Path of a figure in ``results/plots`` if it exists."""
     path = settings.paths.plots_dir / name
     return path if path.is_file() else None
+
+
+def drift_summary(settings: Settings) -> dict[str, Any] | None:
+    """Last drift summary (``brent monitor drift``)."""
+    from brent_forecast.monitoring.drift import drift_dir  # Evidently is imported lazily
+
+    summary: dict[str, Any] | None = _read_json(drift_dir(settings) / "summary.json")
+    return summary
+
+
+def drift_history(settings: Settings) -> pd.DataFrame:
+    """One row per drift run: date of the current window, drifted share and alert."""
+    from brent_forecast.monitoring.drift import drift_dir
+
+    path = drift_dir(settings) / "history.jsonl"
+    if not path.is_file():
+        return pd.DataFrame(columns=["current_end", "drifted_share", "alert"])
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+    history = pd.DataFrame(rows)
+    history["current_end"] = pd.to_datetime(history["current_end"])
+    return history.drop_duplicates("current_end", keep="last").sort_values("current_end")
+
+
+def drift_report(settings: Settings) -> Path | None:
+    """Evidently HTML report of the last drift run, if any."""
+    from brent_forecast.monitoring.drift import drift_dir
+
+    path = drift_dir(settings) / "report.html"
+    return path if path.is_file() else None

@@ -172,6 +172,12 @@ variable "ingest_schedule" {
   default     = "30 22 * * 1-5"
 }
 
+variable "drift_schedule" {
+  description = "Daily drift report (`brent monitor drift`), after the ingestion."
+  type        = string
+  default     = "0 23 * * 1-5"
+}
+
 variable "schedule_time_zone" {
   description = "Time zone of the job schedules."
   type        = string

@@ -161,10 +161,11 @@ terraform init -migrate-state -backend-config="bucket=$PROJECT_ID-tfstate"
 | Job | Schedule (UTC) | Command | Resources |
 |-----|----------------|---------|-----------|
 | `brent-ingest` | Mon–Fri 22:30 | `brent data ingest`: new trading days to `data/live/` | 1 vCPU, 1 GiB |
+| `brent-drift` | Mon–Fri 23:00 | `brent monitor drift`: Evidently data and prediction drift, alert | 1 vCPU, 2 GiB; data and registry read-only |
 | `brent-retrain` | Mondays 06:00 | `brent retrain --stage-store`: ingest, train, report + promotion, explain | 4 vCPU, 4 GiB, 1 h timeout |
 
 Cloud Scheduler starts each Cloud Run Job through the Run API with the `brent-scheduler` identity,
-which is allowed to start these two jobs and nothing else. The jobs run as `brent-trainer`
+which is allowed to start these three jobs and nothing else. The jobs run as `brent-trainer`
 (read-write on the bucket, access to the webhook secret).
 
 - **Promotion** is the existing rule (`select_champion`): a model becomes `champion` only if it beats
@@ -189,6 +190,9 @@ which is allowed to start these two jobs and nothing else. The jobs run as `bren
   Every run posts its outcome: new champion, refreshed, skipped (nothing changed) or **failed**.
 - **First champion.** `gcloud run jobs execute brent-retrain --region <region> --wait` creates the
   registry. Once a champion exists, the CD smoke test (`/health` = 200) can pass.
+- **Drift.** `brent-drift` writes `results/drift/report.html`, `summary.json` and `history.jsonl`
+  to the bucket. The dashboard's *Monitoring* tab shows them and offers the HTML report for
+  download. An alert goes to the same webhook (see [Drift monitoring](../README.md#drift-monitoring-evidently)).
 - The CD workflow updates the jobs' image together with the production release.
 
 ## Continuous deployment (GitHub Actions)
@@ -276,8 +280,8 @@ Estimated for the demo traffic of a portfolio (hundreds of requests a month), li
 | Resource | Usage | Free tier | Estimate |
 |----------|-------|-----------|----------|
 | Cloud Run services (4 + MLflow) | scale to zero, request-based | 180k vCPU-s, 360k GiB-s, 2M requests / month | 0 € |
-| Cloud Run jobs | retraining ~15 min × 4 vCPU weekly (~15k vCPU-s and GiB-s / month) + ~1 min daily ingestion | shared with the line above | 0 € (≈ 0.30 USD/month at list price) |
-| Cloud Scheduler | 2 jobs | 3 jobs per billing account | 0 € |
+| Cloud Run jobs | retraining ~15 min × 4 vCPU weekly (~15k vCPU-s and GiB-s / month) + ~1 min daily ingestion and drift | shared with the line above | 0 € (≈ 0.30 USD/month at list price) |
+| Cloud Scheduler | 3 jobs | 3 jobs per billing account | 0 € |
 | Artifact Registry | 2 images × up to 10 versions; shared base layers | 0.5 GB | 0–0.30 €/month (0.10 USD/GB above the free tier) |
 | Cloud Storage | data + MLflow store + results (< 1 GB) | 5 GB Standard (us-central1/us-east1/us-west1) | 0 € |
 | Secret Manager | 1–2 secrets, few accesses | 6 versions, 10k accesses | 0 € |

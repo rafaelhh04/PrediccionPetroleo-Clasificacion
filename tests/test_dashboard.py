@@ -90,6 +90,50 @@ def _artefacts(settings: Settings) -> None:
     pd.DataFrame({"feature": ["vix", "mom_63"], "mean_abs_shap": [0.02, 0.07]}).to_csv(
         settings.paths.explain_dir / "shap_lightgbm.csv", index=False
     )
+    _drift(settings)
+
+
+DRIFT = {
+    "source": "live",
+    "reference": {"start": "2023-01-02", "end": "2025-12-31", "rows": 756},
+    "current": {"start": "2026-01-02", "end": "2026-03-31", "rows": 60},
+    "columns": [
+        {
+            "column": "vix",
+            "method": "K-S p_value",
+            "threshold": 0.05,
+            "score": 0.001,
+            "drifted": True,
+        },
+        {
+            "column": "prediction",
+            "method": "K-S p_value",
+            "threshold": 0.05,
+            "score": 0.4,
+            "drifted": False,
+        },
+    ],
+    "drifted_features": ["vix"],
+    "drifted_share": 0.6,
+    "prediction_drift": False,
+    "alert": True,
+    "reasons": ["ALERT: 60% of the features drifted (threshold 50%)"],
+    "model": {},
+    "generated_at": "2026-04-01T23:00:00+00:00",
+}
+
+
+def _drift(settings: Settings) -> None:
+    folder = settings.paths.results_dir / "drift"
+    folder.mkdir(parents=True)
+    (folder / "summary.json").write_text(json.dumps(DRIFT))
+    (folder / "report.html").write_text("<html></html>")
+    lines = [
+        {"current_end": "2026-03-30", "drifted_share": 0.3, "alert": False},
+        {"current_end": "2026-03-31", "drifted_share": 0.5, "alert": False},
+        {"current_end": "2026-03-31", "drifted_share": 0.6, "alert": True},  # re-run, same day
+    ]
+    (folder / "history.jsonl").write_text("".join(json.dumps(line) + "\n" for line in lines))
 
 
 # ── provenance ────────────────────────────────────────────────
@@ -207,6 +251,18 @@ def test_api_client_reports_connection_errors(settings: Settings) -> None:
         client.predict_latest()
 
 
+def test_drift_loaders(settings: Settings) -> None:
+    assert data.drift_summary(settings) is None
+    assert data.drift_history(settings).empty
+    assert data.drift_report(settings) is None
+    _drift(settings)
+
+    assert data.drift_summary(settings)["alert"] is True  # type: ignore[index]
+    history = data.drift_history(settings)
+    assert history["drifted_share"].tolist() == [0.3, 0.6]  # last run of each day
+    assert data.drift_report(settings) is not None
+
+
 # ── page ──────────────────────────────────────────────────────
 
 
@@ -233,15 +289,20 @@ def test_the_page_renders_every_section(
 
     assert not app.exception
     assert "SYNTHETIC data" in app.warning[0].value
-    assert [m.value for m in app.metric] == ["▲ up", "100.0%", "2026-03-12", "persistence (v1)"]
+    assert [m.value for m in app.metric] == [
+        *("▲ up", "100.0%", "2026-03-12", "persistence (v1)"),  # prediction
+        *("60%", "no", "2026-01-02 → 2026-03-31"),  # monitoring
+    ]
     assert "naive baseline" in app.info[0].value
     assert [t.label for t in app.tabs] == [
         "Prices",
         "Statistical report",
         "Backtest",
         "Explanations",
+        "Monitoring",
     ]
-    assert len(app.dataframe) == 2  # candidates and backtest
+    assert len(app.dataframe) == 3  # candidates, backtest and drift tests
+    assert "60% of the features drifted" in app.error[0].value
     assert app.selectbox[0].value == "lightgbm"
     assert any("not investment advice" in c.value for c in app.caption)
 
@@ -253,7 +314,7 @@ def test_the_page_degrades_without_artefacts_or_api(settings: Settings) -> None:
     assert "No training run yet" in app.warning[0].value
     assert "inference API is not available" in app.error[0].value
     infos = " ".join(i.value for i in app.info)
-    for command in ("brent data download", "brent report", "brent explain"):
+    for command in ("brent data download", "brent report", "brent explain", "brent monitor drift"):
         assert command in infos
 
 
