@@ -88,11 +88,14 @@ live:
 
 # `brent serve`: HTTP inference API (FastAPI). The model behind `alias` is loaded from the registry
 # at start-up; while none is available (e.g. before the first `brent report`), /health answers 503
-# and loading is retried at most every `reload_interval_seconds`.
+# and loading is retried at most every `reload_interval_seconds`. Once loaded, the alias is checked
+# every `refresh_interval_seconds` and a new version (e.g. after `brent retrain`) is loaded in the
+# background while the current one keeps serving (0 disables the check).
 serving:
   alias: champion           # champion | challenger
   live: true                # "latest day" predictions use data/live/ when it exists
   reload_interval_seconds: 30
+  refresh_interval_seconds: 300
 
 # `brent dashboard`: Streamlit demo. It reads results/ and data/ directly and asks the API for the
 # prediction of the day (BRENT_DASHBOARD__API_URL=http://api:8000 in docker-compose).

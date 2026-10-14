@@ -238,6 +238,8 @@ class ServingSettings(_Section):
     alias: str = Field(min_length=1)
     live: bool
     reload_interval_seconds: float = Field(ge=0.0)
+    refresh_interval_seconds: float = Field(ge=0.0)
+    """How often a loaded alias is checked for a new version (0: never)."""
 
 
 class NotifySettings(_Section):
