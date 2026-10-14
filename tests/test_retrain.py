@@ -260,12 +260,25 @@ def test_a_staged_store_is_published_only_on_success(tracked: Settings) -> None:
         _db_with(local, "run")
         assert _values(database) == ["before"]  # untouched while the run is going on
     assert _values(database) == ["before", "run"]
-    assert not database.with_name(f"{database.name}.partial").exists()
 
     with pytest.raises(RuntimeError), staged_store(tracked) as staged:
         _db_with(Path(staged.tracking.uri.removeprefix("sqlite:///")), "failed run")
         raise RuntimeError("training crashed")
     assert _values(database) == ["before", "run"]
+
+
+def test_open_connections_see_the_published_store(tracked: Settings) -> None:
+    # MLflow keeps one engine per URI for the whole process: publishing must not swap the
+    # file under it (a rename would leave it reading the deleted, old database).
+    database = Path(tracked.tracking.uri.removeprefix("sqlite:///"))
+    _db_with(database, "before")
+    held = sqlite3.connect(database)
+    try:
+        with staged_store(tracked) as staged:
+            _db_with(Path(staged.tracking.uri.removeprefix("sqlite:///")), "run")
+        assert [row[0] for row in held.execute("SELECT v FROM t")] == ["before", "run"]
+    finally:
+        held.close()
 
 
 def test_a_first_staged_run_creates_the_store(tracked: Settings) -> None:

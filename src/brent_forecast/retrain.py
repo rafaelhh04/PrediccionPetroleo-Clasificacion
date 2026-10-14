@@ -28,12 +28,11 @@ failed run leaves the registry untouched.
 import hashlib
 import json
 import logging
-import os
-import shutil
+import sqlite3
 import tempfile
 import time
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from importlib.metadata import version
@@ -204,6 +203,18 @@ def build_dataset(settings: Settings, oil: Path, events: Path, output: Path) -> 
     return str(dataset.frame["date"].max().date())
 
 
+def _copy_sqlite(source: Path, target: Path) -> None:
+    """Copy a SQLite database with SQLite's online backup API.
+
+    The copy is transactional and keeps the target file (same inode), so open
+    connections to it, such as MLflow's cached engines, see the new content
+    instead of a deleted file.
+    """
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with closing(sqlite3.connect(source)) as src, closing(sqlite3.connect(target)) as dst:
+        src.backup(dst)
+
+
 @contextmanager
 def staged_store(settings: Settings) -> Iterator[Settings]:
     """Work on a local copy of a SQLite tracking store; publish it only on success.
@@ -218,17 +229,13 @@ def staged_store(settings: Settings) -> Iterator[Settings]:
     with tempfile.TemporaryDirectory(prefix="brent-mlflow-") as tmp:
         local = Path(tmp) / database.name
         if database.is_file():
-            shutil.copyfile(database, local)
+            _copy_sqlite(database, local)
         tracking = settings.tracking.model_copy(update={"uri": f"sqlite:///{local}"})
         yield settings.model_copy(update={"tracking": tracking})
-        # Reached only when the run succeeded: replace the store in one rename.
-        if not local.is_file():  # nothing was tracked
-            return
-        database.parent.mkdir(parents=True, exist_ok=True)
-        partial = database.with_name(f"{database.name}.partial")
-        shutil.copyfile(local, partial)
-        os.replace(partial, database)
-        logger.info("Published the tracking store to %s", database)
+        # Reached only when the run succeeded.
+        if local.is_file():  # something was tracked
+            _copy_sqlite(local, database)
+            logger.info("Published the tracking store to %s", database)
 
 
 def _write(path: Path, payload: dict[str, Any]) -> None:
