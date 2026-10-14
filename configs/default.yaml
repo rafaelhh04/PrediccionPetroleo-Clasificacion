@@ -110,6 +110,17 @@ notify:
   webhook_url: null
   timeout_seconds: 10
 
+# `brent monitor drift` (Evidently): the last `current_days` feature rows (live data when ingested)
+# against the `reference_days` rows before them, plus the served model's P(up) on both (prediction
+# drift). Alert (webhook) when `drift_share` of the features drifted or, optionally, the predictions.
+# Calendar features always "drift" between a short and a long window: they are excluded.
+monitoring:
+  current_days: 60
+  reference_days: 756       # ~3 years; null = every earlier row
+  drift_share: 0.5
+  alert_on_prediction_drift: true
+  exclude: [dow_sin, dow_cos, month_sin, month_cos]
+
 # `brent explain`: every listed model is refitted on the development period and explained on the
 # out-of-sample period (permutation importance on raw features, SHAP on the model inputs).
 explain:

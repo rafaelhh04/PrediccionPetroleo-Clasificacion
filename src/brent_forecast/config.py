@@ -242,6 +242,16 @@ class ServingSettings(_Section):
     """How often a loaded alias is checked for a new version (0: never)."""
 
 
+class MonitoringSettings(_Section):
+    """Drift monitoring (``brent monitor drift``)."""
+
+    current_days: int = Field(ge=10)
+    reference_days: int | None = Field(ge=20)
+    drift_share: float = Field(gt=0.0, le=1.0)
+    alert_on_prediction_drift: bool
+    exclude: list[str] = Field(default_factory=list)
+
+
 class NotifySettings(_Section):
     """Chat webhook of the scheduled jobs (``None``: log only).
 
@@ -329,6 +339,7 @@ class Settings(BaseSettings):
     live: LiveSettings
     serving: ServingSettings
     notify: NotifySettings
+    monitoring: MonitoringSettings
     dashboard: DashboardSettings
     models: ModelsSettings
 
