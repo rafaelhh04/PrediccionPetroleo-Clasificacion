@@ -48,11 +48,17 @@ dashboard = [
 postgres = [
     "psycopg2-binary>=2.9",
 ]
+# Data and prediction drift reports (`brent monitor drift`, Evidently).
+monitoring = [
+    "evidently>=0.7.23",
+]
 
 [dependency-groups]
 dev = [
     "codespell>=2.4",
     "dvc>=3.50",
+    # The monitoring extra, so that the drift tests run in the default environment.
+    "evidently>=0.7.23",
     "httpx>=0.28",
     "hypothesis>=6.120",
     "mypy>=1.15",
@@ -142,7 +148,9 @@ plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
 # These libraries ship no type information (no py.typed / stubs).
-module = ["sklearn.*", "scipy.*", "shap.*", "statsmodels.*", "kagglehub.*", "joblib.*"]
+module = [
+    "sklearn.*", "scipy.*", "shap.*", "statsmodels.*", "kagglehub.*", "joblib.*", "evidently.*",
+]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
