@@ -8,6 +8,12 @@ the service keeps running and retries at most every
 ``serving.reload_interval_seconds`` (``/health`` answers 503 meanwhile), so the
 API can start before the first ``brent report``.
 
+Once a model is served, the alias is checked every
+``serving.refresh_interval_seconds`` (one registry query). When it points to a
+new version (``brent retrain`` promoted or refreshed the champion), that
+version is loaded in a background thread and swapped in atomically; the
+current model keeps answering meanwhile, and a failed refresh keeps it.
+
 The model is copied to a temporary directory before loading: MLflow writes
 metadata next to the artefacts it loads from ``models:/`` URIs, and in the
 cloud the registry is a read-only mount of the bucket (see ``infra/``).
@@ -48,6 +54,10 @@ class ServedModel:
 
 
 Loader = Callable[[Settings, str], ServedModel]
+VersionProbe = Callable[[Settings, str], str | None]
+"""``(settings, alias) -> version`` the alias points to now (``None``: no such alias)."""
+Background = Callable[[Callable[[], None]], None]
+"""Runs a task without blocking the caller (a daemon thread by default)."""
 
 
 def load_from_registry(settings: Settings, alias: str) -> ServedModel:
@@ -84,6 +94,15 @@ def load_from_registry(settings: Settings, alias: str) -> ServedModel:
     )
 
 
+def registry_version(settings: Settings, alias: str) -> str | None:
+    """Version behind ``alias`` in the registry (a single cheap query)."""
+    return registry_aliases(settings).get(alias, {}).get("version")
+
+
+def _in_thread(task: Callable[[], None]) -> None:
+    threading.Thread(target=task, name="model-refresh", daemon=True).start()
+
+
 class ModelService:
     """Thread-safe holder of the served model (FastAPI runs sync endpoints in a thread pool)."""
 
@@ -92,16 +111,24 @@ class ModelService:
         settings: Settings,
         loader: Loader = load_from_registry,
         clock: Callable[[], float] = time.monotonic,
+        probe: VersionProbe = registry_version,
+        background: Background = _in_thread,
     ) -> None:
         self.settings = settings
         self._loader = loader
         self._clock = clock
+        self._probe = probe
+        self._background = background
         self._lock = threading.Lock()
         self._served: ServedModel | None = None
         self._error: str | None = "not loaded yet"
         self._last_attempt: float | None = None
+        self._last_check: float | None = None
+        self._refreshing = False
         self.load_failures = 0
         """Failed loading attempts since start-up (exported as a metric)."""
+        self.refreshes = 0
+        """New versions swapped in since start-up (exported as a metric)."""
 
     @property
     def served(self) -> ServedModel | None:
@@ -124,9 +151,14 @@ class ModelService:
             return self._load()
 
     def get(self) -> ServedModel | None:
-        """Return the served model, retrying the load if none is loaded and the interval elapsed."""
-        if self._served is not None:
-            return self._served
+        """Return the served model, retrying the load if none is loaded and the interval elapsed.
+
+        With a model loaded, a due alias check is started in the background.
+        """
+        served = self._served
+        if served is not None:
+            self._schedule_refresh()
+            return served
         with self._lock:
             interval = self.settings.serving.reload_interval_seconds
             due = self._last_attempt is None or self._clock() - self._last_attempt >= interval
@@ -144,6 +176,7 @@ class ModelService:
             logger.warning("Could not load model alias %r: %s", self.alias, self._error)
             return None
         self._served, self._error = served, None
+        self._last_check = self._clock()
         logger.info(
             "Serving %s@%s (version %s, candidate %s)",
             self.settings.tracking.registered_model,
@@ -152,6 +185,41 @@ class ModelService:
             served.info.get("candidate", "unknown"),
         )
         return served
+
+    def _schedule_refresh(self) -> None:
+        interval = self.settings.serving.refresh_interval_seconds
+        if interval <= 0:
+            return
+        with self._lock:
+            now = self._clock()
+            due = self._last_check is None or now - self._last_check >= interval
+            if self._refreshing or not due:
+                return
+            self._refreshing, self._last_check = True, now
+        self._background(self._refresh)
+
+    def _refresh(self) -> None:
+        """Load the alias again if it now points to another version (background task)."""
+        try:
+            current = self._served.info.get("version") if self._served else None
+            version = self._probe(self.settings, self.alias)
+            if version is None or version == current:
+                return
+            served = self._loader(self.settings, self.alias)
+            with self._lock:
+                self._served = served
+                self.refreshes += 1
+            logger.info(
+                "Alias %r moved from version %s to %s (candidate %s): now serving it",
+                self.alias,
+                current,
+                served.info.get("version", "unknown"),
+                served.info.get("candidate", "unknown"),
+            )
+        except Exception as exc:  # keep serving the current model
+            logger.warning("Could not refresh model alias %r: %s", self.alias, exc)
+        finally:
+            self._refreshing = False
 
 
 class LatestFeatures:

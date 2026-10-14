@@ -100,7 +100,7 @@ class _ServiceCollector(Collector):
         self.service = service
 
     def collect(self) -> Iterator[Metric]:
-        """Yield the loaded flag, the model identity and the load failures."""
+        """Yield the loaded flag, the model identity, the load failures and the refreshes."""
         service, alias = self.service, self.service.alias
         served = service.served
         loaded = GaugeMetricFamily(
@@ -125,6 +125,13 @@ class _ServiceCollector(Collector):
         )
         failures.add_metric([alias], float(service.load_failures))
         yield failures
+        refreshes = CounterMetricFamily(
+            "brent_model_refreshes",
+            "New registry versions of the alias swapped in without a restart.",
+            labels=["alias"],
+        )
+        refreshes.add_metric([alias], float(service.refreshes))
+        yield refreshes
 
 
 class ServingMetrics:

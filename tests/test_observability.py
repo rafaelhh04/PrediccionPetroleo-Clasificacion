@@ -148,6 +148,9 @@ def test_metrics_report_an_unavailable_model(settings: Settings) -> None:
     assert _metric(text, "brent_model_load_failures_total") == [
         'brent_model_load_failures_total{alias="champion"} 1.0'
     ]
+    assert _metric(text, "brent_model_refreshes_total") == [
+        'brent_model_refreshes_total{alias="champion"} 0.0'
+    ]
 
 
 def test_metrics_are_not_part_of_the_api_contract(client: TestClient) -> None:

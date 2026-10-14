@@ -248,6 +248,121 @@ def test_loading_is_retried_after_the_interval(settings: Settings, served: Serve
     assert len(calls) == 2
 
 
+def _refreshing(settings: Settings, interval: float) -> Settings:
+    serving = settings.serving.model_copy(update={"refresh_interval_seconds": interval})
+    return settings.model_copy(update={"serving": serving})
+
+
+class _Registry:
+    """The alias moves when ``version`` changes; loads return a model of that version."""
+
+    def __init__(self, served: ServedModel) -> None:
+        self.served, self.version, self.loads = served, "7", 0
+        self.probe_error: Exception | None = None
+
+    def load(self, s: Settings, alias: str) -> ServedModel:
+        self.loads += 1
+        return ServedModel(alias, self.served.model, self.served.columns, {"version": self.version})
+
+    def probe(self, s: Settings, alias: str) -> str | None:
+        if self.probe_error:
+            raise self.probe_error
+        return self.version
+
+
+def test_a_moved_alias_is_reloaded_in_the_background(
+    settings: Settings, served: ServedModel
+) -> None:
+    now, tasks = [0.0], []
+    registry = _Registry(served)
+    service = ModelService(
+        _refreshing(settings, 300),
+        registry.load,
+        clock=lambda: now[0],
+        probe=registry.probe,
+        background=tasks.append,
+    )
+    first = service.load()
+    assert first is not None and first.info["version"] == "7"
+
+    now[0] = 299.0
+    assert service.get() is first and not tasks  # not due yet
+
+    registry.version = "8"  # e.g. `brent retrain` registered a new champion
+    now[0] = 300.0
+    assert service.get() is first  # the current model answers while the new one loads
+    assert service.get() is first and len(tasks) == 1  # one refresh at a time
+    tasks.pop()()
+
+    refreshed = service.get()
+    assert refreshed is not None and refreshed.info["version"] == "8"
+    assert (registry.loads, service.refreshes) == (2, 1)
+
+
+def test_an_unchanged_alias_is_not_reloaded(settings: Settings, served: ServedModel) -> None:
+    now = [0.0]
+    registry = _Registry(served)
+    service = ModelService(
+        _refreshing(settings, 60),
+        registry.load,
+        clock=lambda: now[0],
+        probe=registry.probe,
+        background=lambda task: task(),
+    )
+    service.load()
+    for t in (60.0, 120.0, 180.0):
+        now[0] = t
+        service.get()
+
+    assert (registry.loads, service.refreshes) == (1, 0)
+
+
+def test_a_failed_refresh_keeps_serving_the_current_model(
+    settings: Settings, served: ServedModel, caplog: pytest.LogCaptureFixture
+) -> None:
+    now = [0.0]
+    registry = _Registry(served)
+    registry.probe_error = RuntimeError("registry unreachable")
+    service = ModelService(
+        _refreshing(settings, 60),
+        registry.load,
+        clock=lambda: now[0],
+        probe=registry.probe,
+        background=lambda task: task(),
+    )
+    first = service.load()
+    now[0] = 60.0
+
+    with caplog.at_level("WARNING", logger="brent_forecast.api.service"):
+        assert service.get() is first
+
+    assert "registry unreachable" in caplog.text
+    registry.probe_error, registry.version = None, "9"
+    now[0] = 120.0  # the next check succeeds
+    service.get()
+    assert service.get().info["version"] == "9"  # type: ignore[union-attr]
+
+
+def test_refresh_can_be_disabled(settings: Settings, served: ServedModel) -> None:
+    tasks: list[Any] = []
+    service = ModelService(
+        _refreshing(settings, 0),
+        lambda s, alias: served,
+        clock=lambda: 1e9,
+        probe=lambda s, alias: "other",
+        background=tasks.append,
+    )
+    service.load()
+    service.get()
+    assert not tasks
+
+
+def test_the_default_probe_reads_the_registry(settings: Settings) -> None:
+    from brent_forecast.api.service import registry_version
+
+    assert registry_version(settings, "champion") is None  # empty registry
+
+
 def test_latest_features_are_cached_until_a_file_changes(
     settings: Settings, served: ServedModel, raw_data_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

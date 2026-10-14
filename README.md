@@ -493,6 +493,21 @@ revision and [smoke-tests](scripts/smoke_test.py) it (`/health` = 200 with the m
 a 422). Only then does the traffic move. Rollback is a traffic switch to the previous revision
 ([`rollback.yml`](.github/workflows/rollback.yml)).
 
+**Scheduled retraining** runs as Cloud Run Jobs started by Cloud Scheduler: `brent data ingest` on
+weekdays, and `brent retrain` weekly. A retraining run ingests the new days, then trains on the snapshot
+plus those days. It reports, applies the **existing promotion rule** (a model replaces the baseline
+only if it beats it with significance) and explains the models. It is **idempotent**: it is skipped when
+the data, the training configuration and the code version are those of the last successful run. It
+works on a local copy of the SQLite registry and publishes it only on success (`--stage-store`), then
+sends the outcome to a chat webhook (`notify.webhook_url`, from Secret Manager). The API checks its
+alias every `serving.refresh_interval_seconds` and loads a new version in the background, without a
+restart (`brent_model_refreshes_total`).
+
+```bash
+uv run brent retrain --no-ingest           # same as the job, on local data; JSON outcome
+uv run brent retrain --force               # retrain even if nothing changed
+```
+
 `make infra-check` runs `terraform fmt`/`validate` and plan-level `terraform test` with mocked providers,
 so no credentials are needed. CI adds **tflint**, a **Trivy** IaC scan and **actionlint**, plus
 `terraform plan` with a read-only identity once GCP is configured. Step-by-step deployment, the

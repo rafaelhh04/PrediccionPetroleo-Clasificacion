@@ -254,6 +254,16 @@ con el SHA como tag y se sube a Artifact Registry con **atestación de procedenc
 cargado, una predicción, un 422). Solo entonces mueve el tráfico. El rollback es un cambio de tráfico a
 la revisión anterior ([`rollback.yml`](.github/workflows/rollback.yml)).
 
+**Reentrenamiento programado**: Cloud Run Jobs lanzados por Cloud Scheduler, con `brent data ingest` en
+días laborables y `brent retrain` cada semana. Cada reentrenamiento ingiere los días nuevos, entrena con
+el snapshot más esos días y genera el informe. Aplica la **regla de promoción existente** (un modelo solo
+sustituye al baseline si lo supera con significancia) y explica los modelos. Es **idempotente**: se salta
+si los datos, la configuración de entrenamiento y la versión del código son los de la última ejecución
+correcta. Trabaja sobre una copia local del registry SQLite y solo la publica si termina bien
+(`--stage-store`); después notifica el resultado a un webhook de chat (`notify.webhook_url`, desde Secret
+Manager). La API comprueba su alias cada `serving.refresh_interval_seconds` y carga la versión nueva en
+segundo plano, sin reiniciar.
+
 `make infra-check` ejecuta `terraform fmt`/`validate` y `terraform test` con *providers* simulados (sin
 credenciales). CI añade **tflint**, el escaneo IaC de **Trivy**, **actionlint** y un `terraform plan` con
 una identidad de solo lectura cuando GCP está configurado. Pasos de despliegue, diagramas y tabla de

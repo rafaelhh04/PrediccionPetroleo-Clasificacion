@@ -26,6 +26,11 @@ on:
         description: Dashboard image by digest.
         required: true
         type: string
+      jobs:
+        description: Cloud Run jobs that run the API image (space-separated), updated after the promotion.
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -99,6 +104,16 @@ jobs:
         run: |
           gcloud run services update-traffic "$API" --region "$REGION" --to-tags candidate=100 --quiet
           gcloud run services update-traffic "$DASHBOARD" --region "$REGION" --to-tags candidate=100 --quiet
+
+      - name: Update the scheduled jobs
+        if: inputs.jobs != ''
+        env:
+          JOBS: ${{ inputs.jobs }}
+        run: |
+          for job in $JOBS; do
+            gcloud run jobs update "$job" --region "$REGION" --image "$API_IMAGE" --quiet
+            echo "- job \`$job\` now runs \`$API_IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
+          done
 
       - name: Service URLs
         id: urls

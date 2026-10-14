@@ -150,3 +150,39 @@ variable "deployer_service_account" {
   type        = string
   default     = null
 }
+
+# ── scheduled jobs ─────────────────────────────────────────────
+variable "retrain" {
+  description = <<-EOT
+    Weekly retraining job (`brent retrain`): ingest, train, report + promotion, explain. `brent train`
+    takes ~12 min on 4 cores; 4 GiB covers Optuna, LightGBM and SHAP on ~4k rows.
+  EOT
+  type = object({
+    schedule = optional(string, "0 6 * * 1") # Mondays 06:00: Friday's close is final
+    cpu      = optional(string, "4")
+    memory   = optional(string, "4Gi")
+    timeout  = optional(string, "3600s")
+  })
+  default = {}
+}
+
+variable "ingest_schedule" {
+  description = "Daily ingestion of market data (`brent data ingest`), after the ICE Brent settlement."
+  type        = string
+  default     = "30 22 * * 1-5"
+}
+
+variable "schedule_time_zone" {
+  description = "Time zone of the job schedules."
+  type        = string
+  default     = "Etc/UTC"
+}
+
+variable "notify_webhook" {
+  description = <<-EOT
+    Inject the brent-notify-webhook secret into the jobs (BRENT_NOTIFY__WEBHOOK_URL). Set to true
+    only after adding a version to the secret: Cloud Run cannot start with a secret without versions.
+  EOT
+  type        = bool
+  default     = false
+}

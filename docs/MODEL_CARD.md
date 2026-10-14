@@ -137,6 +137,15 @@ The Streamlit demo (`brent dashboard`) shows the same information to non-technic
 whether the results come from real (checksum-verified) or synthetic data, and when the champion is a
 baseline.
 
+**Scheduled retraining** (`brent retrain`) runs weekly in the cloud and on demand. It ingests the new
+trading days, retrains on the snapshot plus those days and applies the **same promotion rule**: a model
+replaces the baseline only if it beats it with significance. Otherwise the baseline, refitted on the
+new data, stays champion. The run is skipped when the data, the training configuration and the code
+are unchanged. Every outcome is sent to a chat webhook: new champion promoted, champion refreshed,
+skipped or failed. The API loads the new version of the alias without a restart. Retraining on more
+days does not remove the caveats below: each run tests many models on an out-of-sample period that
+grows slowly, and that period is reused by every run.
+
 ## Quantitative safeguards
 
 - Leakage tests:

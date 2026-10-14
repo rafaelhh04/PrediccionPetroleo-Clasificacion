@@ -13,7 +13,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, SecretStr, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -238,6 +238,19 @@ class ServingSettings(_Section):
     alias: str = Field(min_length=1)
     live: bool
     reload_interval_seconds: float = Field(ge=0.0)
+    refresh_interval_seconds: float = Field(ge=0.0)
+    """How often a loaded alias is checked for a new version (0: never)."""
+
+
+class NotifySettings(_Section):
+    """Chat webhook of the scheduled jobs (``None``: log only).
+
+    The URL is a credential: it is masked in dumps (``brent config show``, the
+    configuration logged to MLflow) and only revealed when posting.
+    """
+
+    webhook_url: SecretStr | None
+    timeout_seconds: PositiveFloat
 
 
 class DashboardSettings(_Section):
@@ -315,6 +328,7 @@ class Settings(BaseSettings):
     tracking: TrackingSettings
     live: LiveSettings
     serving: ServingSettings
+    notify: NotifySettings
     dashboard: DashboardSettings
     models: ModelsSettings
 

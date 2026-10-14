@@ -166,6 +166,48 @@ def explain(ctx: typer.Context) -> None:
     typer.echo(f"Explanations written to {path}")
 
 
+@app.command()
+def retrain(
+    ctx: typer.Context,
+    ingest: Annotated[
+        bool, typer.Option("--ingest/--no-ingest", help="Fetch recent market data first.")
+    ] = True,
+    explain: Annotated[
+        bool, typer.Option("--explain/--no-explain", help="Explain the retrained models.")
+    ] = True,
+    force: Annotated[
+        bool, typer.Option("--force", help="Retrain even if nothing changed since the last run.")
+    ] = False,
+    stage_store: Annotated[
+        bool,
+        typer.Option(
+            "--stage-store",
+            help="Work on a local copy of a SQLite tracking store, published on success "
+            "(for a store on Cloud Storage FUSE).",
+        ),
+    ] = False,
+) -> None:
+    """Scheduled retraining: ingest, train, report + promotion and explain; skip if unchanged.
+
+    Prints the outcome as JSON and sends it to notify.webhook_url. Exit code 1 on failure.
+    """
+    from dataclasses import asdict
+
+    from brent_forecast.retrain import run_and_notify
+
+    settings = _settings(ctx)
+    state = _state(ctx)
+    setup_logging(state.log_level, log_file=settings.paths.log_file, fmt=state.log_format)
+    try:
+        outcome = run_and_notify(
+            settings, ingest=ingest, explain=explain, force=force, stage=stage_store
+        )
+    except Exception as exc:
+        typer.secho(f"Retraining failed: {type(exc).__name__}: {exc}", fg="red", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(json.dumps(asdict(outcome), indent=2))
+
+
 @registry_app.command("show")
 def registry_show(ctx: typer.Context) -> None:
     """Print the aliases of the registered model with their versions and tags."""

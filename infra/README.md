@@ -133,9 +133,9 @@ uv run dvc remote add -d gcs "gs://$BUCKET/dvc" && uv run --with dvc-gs dvc push
 terraform output api_urls dashboard_urls
 ```
 
-Until a champion is registered the API answers `/health` → 503 (and keeps retrying). The registry
-can be created by the scheduled training job or, for a first look, by training locally inside the
-compose stack and copying the `mlruns` volume to `gs://<bucket>/mlruns/` (the paths match).
+Until a champion is registered the API answers `/health` → 503 (and keeps retrying). Create the
+first one with the retraining job: `gcloud run jobs execute brent-retrain --region "$REGION" --wait`
+(see [Scheduled jobs](#scheduled-jobs-retraining-and-ingestion)).
 
 Optional: move the bootstrap state into the bucket it created:
 
@@ -155,6 +155,41 @@ terraform init -migrate-state -backend-config="bucket=$PROJECT_ID-tfstate"
 
 **Tear down:** `terraform destroy` in `infra/` and then in `infra/bootstrap/` (with
 `deletion_protection = false`, the default; the state bucket is never force-destroyed).
+
+## Scheduled jobs (retraining and ingestion)
+
+| Job | Schedule (UTC) | Command | Resources |
+|-----|----------------|---------|-----------|
+| `brent-ingest` | Mon–Fri 22:30 | `brent data ingest`: new trading days to `data/live/` | 1 vCPU, 1 GiB |
+| `brent-retrain` | Mondays 06:00 | `brent retrain --stage-store`: ingest, train, report + promotion, explain | 4 vCPU, 4 GiB, 1 h timeout |
+
+Cloud Scheduler starts each Cloud Run Job through the Run API with the `brent-scheduler` identity,
+which is allowed to start these two jobs and nothing else. The jobs run as `brent-trainer`
+(read-write on the bucket, access to the webhook secret).
+
+- **Promotion** is the existing rule (`select_champion`): a model becomes `champion` only if it beats
+  the best baseline significantly; otherwise the refitted baseline stays champion. The API notices the
+  moved alias within `serving.refresh_interval_seconds` (5 min) and swaps the model in the background.
+  New instances load it at start-up.
+- **Idempotent.** A run is skipped when the data files, the training configuration and the code
+  version match the last successful run (`results/retrain_state.json`). Retries (`max_retries = 1`) and
+  manual re-runs are safe.
+- **Single registry writer.** With the SQLite backend the job copies `mlflow.db` to local disk, trains
+  and registers there, and replaces the object in the bucket only after a successful run. GCS FUSE
+  would otherwise rewrite the whole object on every SQLite write, and a crash would leave a
+  half-written registry. Edits made in the MLflow UI *during* a run are overwritten: use the Cloud SQL
+  backend if several writers are needed.
+- **Notifications.** Add the webhook URL as a secret version, then set `notify_webhook = true`.
+  Cloud Run refuses to start with a secret that has no version.
+
+  ```bash
+  printf '%s' "$WEBHOOK_URL" | gcloud secrets versions add brent-notify-webhook --data-file=-
+  ```
+
+  Every run posts its outcome: new champion, refreshed, skipped (nothing changed) or **failed**.
+- **First champion.** `gcloud run jobs execute brent-retrain --region <region> --wait` creates the
+  registry. Once a champion exists, the CD smoke test (`/health` = 200) can pass.
+- The CD workflow updates the jobs' image together with the production release.
 
 ## Continuous deployment (GitHub Actions)
 
@@ -240,7 +275,9 @@ Estimated for the demo traffic of a portfolio (hundreds of requests a month), li
 
 | Resource | Usage | Free tier | Estimate |
 |----------|-------|-----------|----------|
-| Cloud Run services (6 + MLflow) | scale to zero, request-based | 180k vCPU-s, 360k GiB-s, 2M requests / month | 0 € |
+| Cloud Run services (4 + MLflow) | scale to zero, request-based | 180k vCPU-s, 360k GiB-s, 2M requests / month | 0 € |
+| Cloud Run jobs | retraining ~15 min × 4 vCPU weekly (~15k vCPU-s and GiB-s / month) + ~1 min daily ingestion | shared with the line above | 0 € (≈ 0.30 USD/month at list price) |
+| Cloud Scheduler | 2 jobs | 3 jobs per billing account | 0 € |
 | Artifact Registry | 2 images × up to 10 versions; shared base layers | 0.5 GB | 0–0.30 €/month (0.10 USD/GB above the free tier) |
 | Cloud Storage | data + MLflow store + results (< 1 GB) | 5 GB Standard (us-central1/us-east1/us-west1) | 0 € |
 | Secret Manager | 1–2 secrets, few accesses | 6 versions, 10k accesses | 0 € |
