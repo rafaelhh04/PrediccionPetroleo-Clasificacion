@@ -102,6 +102,8 @@ El diagrama completo y cada capa se describen en el [README en inglés](README.m
   - [cloud](docs/guide/cloud.md);
   - [resultados](docs/guide/results.md).
 - [Model card](docs/MODEL_CARD.md).
+- [Decisiones de arquitectura (ADR)](docs/adr/index.md) y [referencia de la API](docs/reference/index.md).
+- Sitio de documentación: <https://rafaelhh04.github.io/PrediccionPetroleo-Clasificacion/>.
 - [Infraestructura](infra/README.md).
 - [Roadmap y notas de cierre de cada fase](docs/ROADMAP.md).
 - [Cómo contribuir](CONTRIBUTING.md).

@@ -12,6 +12,7 @@
 [![Ruff](https://img.shields.io/badge/lint-ruff-d7ff64.svg)](https://docs.astral.sh/ruff/)
 [![mypy strict](https://img.shields.io/badge/types-mypy%20strict-2a6db2.svg)](https://mypy.readthedocs.io/)
 [![Terraform](https://img.shields.io/badge/IaC-Terraform-7b42bc.svg)](infra/README.md)
+[![Docs](https://img.shields.io/badge/docs-MkDocs%20Material-526cfe.svg)](https://rafaelhh04.github.io/PrediccionPetroleo-Clasificacion/)
 
 *Versión en español: [README.es.md](README.es.md).*
 
@@ -142,8 +143,8 @@ flowchart LR
   code are unchanged. It applies the same promotion rule, and the API picks up a new champion without a
   restart. Daily drift reports with Evidently alert through a webhook.
 
-The trade-offs behind each decision are in [infra/README.md](infra/README.md#design-decisions) and in the
-closing notes of every phase in [docs/ROADMAP.md](docs/ROADMAP.md).
+Each decision has an [architecture decision record](docs/adr/index.md) with its context, alternatives and
+consequences; the closing notes of every phase in [docs/ROADMAP.md](docs/ROADMAP.md) add the details.
 
 ## Results at a glance
 
@@ -167,6 +168,10 @@ are in the [model card](docs/MODEL_CARD.md).
 
 ## Documentation
 
+Everything below is also published as a searchable site with the API reference:
+**[rafaelhh04.github.io/PrediccionPetroleo-Clasificacion](https://rafaelhh04.github.io/PrediccionPetroleo-Clasificacion/)** (MkDocs Material). The
+link goes live once GitHub Pages is enabled ([CONTRIBUTING.md](CONTRIBUTING.md#documentation-site-github-pages)).
+
 | Document | Content |
 |----------|---------|
 | [Usage](docs/guide/usage.md) | Installation, data, every CLI command, outputs, configuration |
@@ -176,6 +181,8 @@ are in the [model card](docs/MODEL_CARD.md).
 | [Cloud, CD and monitoring](docs/guide/cloud.md) | GCP stack, continuous deployment, retraining, drift |
 | [Results](docs/guide/results.md) | Statistical report, backtest, feature ablation |
 | [Model card](docs/MODEL_CARD.md) | Intended use, metrics with intervals, limitations, risks |
+| [Architecture decisions](docs/adr/index.md) | Eight ADRs: src layout + uv, purged walk-forward, promotion rule, MLflow backend, GCS FUSE, keyless CD, drift, demo |
+| [API reference](docs/reference/index.md) | Generated from the docstrings with mkdocstrings (best read on the site) |
 | [Infrastructure](infra/README.md) | Terraform stacks, diagrams, deployment steps, costs |
 | [Roadmap](docs/ROADMAP.md) | Professionalisation plan, progress log and closing notes per phase (Spanish) |
 | [Contributing](CONTRIBUTING.md) | Workflow, conventions, CI, repository settings |
@@ -215,11 +222,12 @@ make install     # uv sync --frozen + pre-commit hooks
 make lint        # ruff, codespell, mypy --strict, file hygiene
 make test        # fast suite; `make test-all` adds the slow end-to-end tests
 make coverage    # branch coverage, fails under 85 %
+make docs        # documentation site, warnings as errors (`make docs-serve` for live reload)
 make help        # every target
 ```
 
 CI runs lint and types, the tests on Python 3.12 and 3.13, a Docker build with smoke tests and a Trivy
-gate, Terraform checks (fmt, validate, test, tflint, Trivy IaC) and actionlint. The conventions
+gate, Terraform checks (fmt, validate, test, tflint, Trivy IaC), the strict docs build and actionlint. The conventions
 (Conventional Commits, one branch per feature, English for code and docs) are described in
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
