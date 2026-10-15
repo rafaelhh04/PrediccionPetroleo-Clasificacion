@@ -1,6 +1,6 @@
 # Developer shortcuts. Every target runs inside the uv-managed environment.
 .DEFAULT_GOAL := help
-.PHONY: help install lint format typecheck test coverage test-all data demo train retrain drift serve dashboard load-test docker-build docker-train docker-up infra-check docs docs-serve clean
+.PHONY: help install lint format typecheck test coverage test-all data demo train retrain drift serve dashboard load-test docker-build docker-train docker-up infra-check docs docs-serve changelog clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -88,6 +88,11 @@ docs: ## Build the documentation site with warnings as errors (site/)
 
 docs-serve: ## Serve the documentation site with live reload on :8001
 	uv run --group docs mkdocs serve --dev-addr 127.0.0.1:8001
+
+GIT_CLIFF ?= uvx git-cliff@2.14.2
+
+changelog: ## Regenerate CHANGELOG.md from the Conventional Commits (VERSION=X.Y.Z for a release)
+	$(GIT_CLIFF) $(if $(VERSION),--tag v$(VERSION)) --output CHANGELOG.md
 
 clean: ## Remove caches and generated results
 	rm -rf .ruff_cache .mypy_cache .pytest_cache .coverage htmlcov results site
