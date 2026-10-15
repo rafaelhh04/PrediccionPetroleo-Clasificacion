@@ -114,3 +114,6 @@ crash.*.log
 .terraformrc
 terraform.rc
 .tflint.d/
+
+# MkDocs build output
+/site/

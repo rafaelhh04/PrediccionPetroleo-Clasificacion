@@ -80,6 +80,20 @@ These live in the GitHub UI, not in the code, and must be configured once.
 Without the secret Codecov attempts a tokenless upload, which may be rejected; the step is non-blocking
 (`fail_ci_if_error: false`) because coverage is already enforced by pytest.
 
+### Documentation site (GitHub Pages)
+
+[`docs.yml`](.github/workflows/docs.yml) builds the MkDocs site on every push to `main` that touches the
+docs or the docstrings. It deploys only when Pages is enabled:
+
+1. *Settings → Pages → Build and deployment → Source: GitHub Actions*.
+2. *Settings → Secrets and variables → Actions → Variables → New repository variable*: `PAGES_ENABLED` =
+   `true`.
+3. Re-run the *Docs* workflow (or push to `main`). The site is published at
+   <https://rafaelhh04.github.io/PrediccionPetroleo-Clasificacion/>.
+
+Pull requests only run the strict build (`make docs` locally, the `Docs` job in CI): any warning, such as a
+broken link or a docstring mkdocstrings cannot parse, fails it.
+
 ### Protect `main`
 
 The ruleset is versioned in [`.github/rulesets/protect-main.json`](.github/rulesets/protect-main.json):

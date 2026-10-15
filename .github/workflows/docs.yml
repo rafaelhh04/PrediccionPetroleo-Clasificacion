@@ -1,0 +1,64 @@
+name: Docs
+
+# Builds the MkDocs site and publishes it to GitHub Pages on every push to main that touches the docs
+# or the docstrings. The strict build also runs in CI (ci.yml, job `docs`) for pull requests.
+#
+# Deployment needs GitHub Pages with "Source: GitHub Actions" (Settings → Pages) and the repository
+# variable PAGES_ENABLED=true. Until then the site is built and the deploy job is skipped.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "src/**"
+      - "mkdocs.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false # never interrupt a deployment in progress
+
+env:
+  UV_FROZEN: "1"
+
+jobs:
+  build:
+    name: Build the site (strict)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - name: Install the docs group only
+        run: uv sync --frozen --only-group docs --no-install-project
+      - name: mkdocs build --strict
+        run: uv run --no-sync mkdocs build --strict --site-dir site
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    if: vars.PAGES_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v6
+      - id: deployment
+        uses: actions/deploy-pages@v5
