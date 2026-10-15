@@ -79,14 +79,16 @@ messages are the release notes: write them for a reader.
    - `make changelog VERSION=X.Y.Z` as the last step, so that `CHANGELOG.md` includes every commit of
      the branch. `chore(release)` commits are left out.
 2. Open the pull request and merge it when CI is green.
-3. Tag the merge commit on `main` and push the tag:
-   `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`.
+3. Release the merge commit on `main`, in one of two ways:
+   - push a tag: `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`;
+   - or run *Actions → Release → Run workflow* on `main` with the version and the commit SHA. Use this
+     when tags cannot be pushed: the release creates the tag on GitHub.
 
 The [`release.yml`](.github/workflows/release.yml) workflow then does the rest:
 
-- it checks that the tag matches the package version;
+- it checks that the version matches the package version at that commit;
 - it builds the wheel and the sdist;
-- it creates the GitHub Release with the highlights and the tag's section of the changelog.
+- it creates the GitHub Release with the highlights and the version's section of the changelog.
 
 ## Repository settings (maintainers)
 
