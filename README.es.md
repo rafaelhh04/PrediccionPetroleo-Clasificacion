@@ -1,383 +1,129 @@
-# Predicción del Precio del Brent — Clasificación Binaria
+# Clasificador de la dirección del Brent
 
-> Dirección del precio del Brent al día siguiente a partir de indicadores de mercado y eventos geopolíticos (2010–2026).
+> ¿Puede el machine learning predecir si el Brent cerrará al alza mañana? Un sistema de ML de extremo a
+> extremo que responde **que no**, lo demuestra estadísticamente y está diseñado para no desplegar un
+> modelo que solo ha tenido suerte.
 
 [![CI](https://github.com/rafaelhh04/PrediccionPetroleo-Clasificacion/actions/workflows/ci.yml/badge.svg)](https://github.com/rafaelhh04/PrediccionPetroleo-Clasificacion/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/rafaelhh04/PrediccionPetroleo-Clasificacion/branch/main/graph/badge.svg)](https://codecov.io/gh/rafaelhh04/PrediccionPetroleo-Clasificacion)
+[![Python 3.12 | 3.13](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-*English version: [README.md](README.md).*
+*English version (completa): [README.md](README.md).*
 
-Clasificación binaria de si el Brent cerrará al alza mañana, comparando cinco modelos — regresión
-logística, SVM con kernel RBF, Random Forest, LightGBM (ajustado con Optuna) y una **red neuronal MLP
-implementada desde cero en NumPy** (backpropagation, dropout invertido, inicialización He, early stopping) — con una evaluación cronológica
-estricta y consciente del *data leakage*.
+## En resumen
 
-| Clase | Condición | Significado |
-|-------|-----------|-------------|
-| `1` | `brent_return(t+1) > 0` | El precio sube |
-| `0` | `brent_return(t+1) ≤ 0` | El precio baja o se mantiene |
+- **La pregunta.** ¿Subirá mañana el Brent? Compiten cinco modelos sobre 16 años de datos diarios de
+  mercado y geopolítica:
+  - regresión logística;
+  - SVM RBF;
+  - random forest;
+  - LightGBM ajustado con Optuna;
+  - un **perceptrón multicapa escrito desde cero en NumPy**.
+- **La respuesta: ninguno supera a lanzar una moneda, y el sistema lo demuestra.** Se usa validación
+  walk-forward purgada frente a cuatro baselines ingenuos, con intervalos *block bootstrap*, tests de
+  DeLong con corrección de Holm y un backtest con costes. Todos los intervalos de AUC contienen 0.5.
+  Con los datos originales de Kaggle, las AUC de test fueron 0.486–0.500.
+- **Por eso se despliega el baseline.** Un modelo solo pasa a `champion` si supera al mejor baseline *con
+  significancia*. Ninguno lo consigue, así que el registry sirve la persistencia («mañana repite hoy») y
+  el mejor modelo queda como `challenger`.
+- **Alrededor, una plataforma de nivel profesional.**
+  - Reproducibilidad y datos: DVC + MLflow y contratos Pandera.
+  - Serving: FastAPI + Streamlit con Prometheus, y Docker.
+  - Cloud: Terraform para Cloud Run y CD sin claves (staging, revisión candidata con smoke test,
+    rollback).
+  - Operación: reentrenamiento semanal y alertas de drift con Evidently.
+  - Calidad: más de 660 tests con un 97.8 % de cobertura de ramas.
 
-El periodo cubierto (2010–2026) incluye eventos de alta relevancia como la pandemia de COVID-19 (2020), la
-guerra de Ucrania (2022) o la crisis del Mar Rojo (2024).
+> [!IMPORTANT]
+> **Cifras sintéticas.** Kaggle, Yahoo Finance y FRED no eran accesibles desde el entorno de desarrollo.
+> Salvo las AUC originales de Kaggle citadas arriba, todas las métricas, capturas y gráficos vienen de un
+> **paseo aleatorio sintético** con el esquema de Kaggle, en el que por construcción no hay nada que
+> predecir. Muestran la maquinaria de evaluación, no el mercado del Brent.
 
----
+![Demo del dashboard: aviso de datos sintéticos, predicción de la API, informe estadístico, backtest, explicaciones y drift](docs/assets/demo.gif)
 
-## Instalación y ejecución
+## Inicio rápido
 
-Requiere [uv](https://docs.astral.sh/uv/getting-started/installation/) (instala Python 3.12 si hace falta).
-
-```bash
-git clone https://github.com/rafaelhh04/PrediccionPetroleo-Clasificacion.git
-cd PrediccionPetroleo-Clasificacion
-
-uv sync                      # crea .venv a partir de uv.lock
-uv run brent data download   # descarga el dataset de Kaggle en data/raw/ (requiere credenciales)
-uv run brent train           # pipeline completa: preprocesado, tuning, entrenamiento y evaluación
-uv run brent report          # informe estadístico de la última ejecución (IC, tests, calibración)
-```
-
-**¿Sin credenciales de Kaggle?** `make demo` ejecuta todo el sistema sobre un dataset **sintético** con el
-esquema de Kaggle (un paseo aleatorio: no hay nada que predecir): `brent data synthetic` lo escribe en
-`data/raw/` y después se entrena con la capa rápida `configs/demo.yaml`, se genera el informe con la
-promoción del campeón y las explicaciones. `make serve` y `make dashboard` muestran el resultado.
-
-Los resultados se generan en `results/` (ignorado por git): `metrics.json` (métricas train/val/test),
-`run.log` (log completo) y `plots/` (curvas ROC, matrices de confusión, curvas de aprendizaje).
-
-### Datos
-
-Los CSV no se versionan. `brent data download` descarga
-[kavyadhyani/global-oil-prices-andgeopolitical-events](https://www.kaggle.com/datasets/kavyadhyani/global-oil-prices-andgeopolitical-events)
-con `kagglehub`, identifica cada fichero por su cabecera, lo copia a `data/raw/` con su nombre canónico y
-verifica su SHA-256 contra `configs/data_checksums.json`.
-
-| Fichero canónico | Contenido |
-|------------------|-----------|
-| `oil_geopolitics_dataset_2010_2026.csv` | ~4.000 filas diarias × 23 columnas: precios, retornos, lags, volatilidades, DXY, VIX, GPR, spread, eventos |
-| `geopolitical_events_timeline.csv` | 35 eventos: `date`, `event_type`, `event_description`, `event_severity` (1–10) |
-
-Los dos datasets se integran mediante **left join** sobre `date`; los días sin evento reciben
-`event_type = 'none'` y `event_severity = 0`.
-
-**Credenciales:** exporta `KAGGLE_USERNAME` y `KAGGLE_KEY` (o usa `~/.kaggle/kaggle.json`).
-
-**Descarga manual:** descarga el ZIP desde Kaggle, copia los dos CSV a `data/raw/` con los nombres canónicos
-y ejecuta `uv run brent data verify`. Si `configs/data_checksums.json` aún no tiene los hashes (valores
-`null`), la primera verificación los registra: haz commit del fichero.
-
-### Configuración
-
-Todos los valores ajustables (rutas, semilla, fechas de split, folds de CV, umbrales de VIF y winsorización,
-hiperparámetros y grids) están en [`configs/default.yaml`](configs/default.yaml) y se pueden sobrescribir con
-variables de entorno `BRENT_*` (`__` como separador de anidamiento), p. ej.
-`BRENT_VALIDATION__MODE=rolling uv run brent train`. `uv run brent config show` muestra la configuración
-resuelta. `--config` se puede repetir para superponer capas (las posteriores se fusionan en profundidad
-sobre las anteriores): `uv run brent -c configs/default.yaml -c configs/demo.yaml train`.
-
----
-
-## Metodología
-
-- **Validación walk-forward con purga y embargo:** periodo de desarrollo `< 2024-01-01` para ajustar
-  hiperparámetros (CV walk-forward de 5 folds) y periodo fuera de muestra `≥ 2024-01-01` evaluado por
-  walk-forward, reentrenando cada 63 sesiones con todos los datos anteriores. Entre train y test hay un hueco
-  de `purge` (1 día: la etiqueta de *t* se realiza en *t+1*) + `embargo` (5 días).
-- **Control de leakage:** se elimina `wti_return` (mismo día); el filtro VIF, los percentiles de
-  winsorización y el `StandardScaler` son pasos del `Pipeline` de cada modelo y se reajustan en cada fold y
-  ventana; los tests prueban que corromper el futuro no cambia features, etiquetas de train ni predicciones
-  anteriores. Cada pipeline final se guarda en `results/models/`.
-- **Búsqueda de hiperparámetros:** `GridSearchCV` (también para la MLP, ahora estimador de sklearn).
-- **Métricas:** accuracy, precision / recall / F1 macro y AUC-ROC (métrica principal).
-
-| Modelo | Implementación |
-|--------|----------------|
-| Regresión logística (L2) | scikit-learn |
-| SVM (kernel RBF, probabilidades calibradas) | scikit-learn |
-| Random Forest | scikit-learn |
-| **MLP 64 → 32 → 1** | **núcleo NumPy puro**, API de estimador scikit-learn |
-| LightGBM (gradient boosting) | `lightgbm`, hiperparámetros con **Optuna** (TPE con semilla + poda por mediana) |
-
-Baselines evaluados con el mismo walk-forward: clase mayoritaria, persistencia (mañana = hoy), aleatorio
-estratificado y buy & hold (siempre sube).
-
-**Evaluación estadística** (`brent report`, lee `predictions.csv` y `metrics.json` sin reentrenar):
-intervalos de confianza de AUC y accuracy con *block bootstrap* circular (bloques de 21 días, porque los
-días no son independientes), test de DeLong de cada modelo contra el mejor baseline con corrección de Holm,
-test binomial de accuracy frente a la *no-information rate*, Brier score, Brier skill score frente a la
-previsión climatológica y diagrama de fiabilidad. El informe indica si los datos coinciden con los
-checksums registrados de Kaggle o si su procedencia no está verificada.
-
-**Features v2:** además de retornos, volatilidades, spread y riesgo geopolítico, RSI(14), MACD(12, 26, 9),
-Bollinger(20, 2) %B y anchura, momentum de 21 y 63 días, cambios de VIX y DXY a 1 y 5 días y codificación
-seno/coseno del día de la semana y del mes. Cada feature tiene un test de truncamiento que prueba que solo
-usa datos hasta su propio día.
-
-**Contratos de datos (Pandera):** cada frontera de datos tiene un esquema (`data/schemas.py`):
-- CSV de precios: columnas obligatorias, tipos, fechas únicas y rangos plausibles (Brent en (0, 1000) USD,
-  retornos en (−100, 100) %, VIX y DXY acotados; el WTI no se acota porque cotizó a −37 USD en 2020).
-- Eventos: fechas únicas y severidad entre 0 y 10.
-- Frame fusionado: fechas crecientes, una fila por día y rango de fechas configurado.
-- Dataset de features: etiqueta 0/1 y features finitas y sin nulos.
-- Filas de inferencia: features finitas y sin nulos.
-
-La validación es *lazy*: un único `DataValidationError` lista todos los fallos.
-
-**Pipeline reproducible (DVC):** `dvc.yaml` declara las etapas `download → validate → featurize → train →
-evaluate → explain`, cada una un comando `brent`, con dependencias, parámetros (claves de
-`configs/default.yaml`) y salidas. `uv run dvc repro` solo re-ejecuta lo que cambió; `dvc.lock` (versionado)
-fija los hashes; datos, dataset y modelos van a la caché de DVC (`uv run dvc push` al remote local
-`../brent-dvc-storage`; GCS/S3 con `dvc[gs]`/`dvc[s3]` y `dvc remote add`). Sin acceso a Kaggle, coloca los
-CSV en `data/raw/` y regístralos con `uv run dvc commit download`.
-
-**Tracking y registro de modelos (MLflow):** `brent train` registra un run padre (protocolo, commit de git,
-SHA-256 de los datos, métricas, predicciones, configuración y gráficos) y un run anidado por candidato
-(hiperparámetros, métricas, AUC por ventana y el pipeline final, serializado con skops). `brent report`
-añade la estadística y aplica la regla de promoción: el mejor modelo es `champion` solo si supera al mejor
-baseline con significancia; si no, el `champion` es el mejor baseline y el modelo queda como `challenger`.
-El modelo se carga por alias (`models:/brent-direction-classifier@champion`); `brent registry show` muestra
-los alias.
-
-**Datos en vivo y predicción:**
-- `brent data ingest` añade los días posteriores al último disponible a una copia del fichero de precios en
-  `data/live/`, sin tocar el snapshot versionado. Usa Yahoo Finance para Brent `BZ=F`, WTI `CL=F` y DXY
-  `DX-Y.NYB`, y FRED para el VIX `VIXCLS`.
-- Recalcula las columnas derivadas y valida el resultado con el mismo contrato de Pandera.
-- El GPR se arrastra con el último valor y los eventos nuevos son "none", porque no hay fuente en vivo.
-- `brent predict` carga `@champion`, construye las features del último día (sin etiqueta), las valida y
-  devuelve P(sube).
-- Los tests usan respuestas grabadas y nunca acceden a la red.
-
-**Explicabilidad** (`brent explain`): cada modelo se reentrena en el periodo de desarrollo y se explica en
-el periodo fuera de muestra, con *permutation importance* (caída de AUC al barajar cada feature) y SHAP
-(TreeSHAP para LightGBM/RF, forma cerrada para la logística y explainer por permutación para SVM/MLP). Se
-genera una vista global (beeswarm, |SHAP| medio) y una local (waterfall del último día).
-
-**Backtest económico:** cada candidato se convierte en una estrategia long/flat (comprado si
-`P(sube) >= 0.5`) sobre el retorno del día siguiente, con 5 pb de coste por operación. Se reportan CAGR,
-volatilidad, Sharpe, drawdown máximo, hit ratio, exposición y número de operaciones, y un intervalo por
-block bootstrap de la diferencia de Sharpe frente a buy & hold.
-
-## Servir el modelo (API HTTP)
-
-`brent serve` (FastAPI + Pydantic v2) sirve el modelo registrado con el alias `serving.alias` (`champion`
-por defecto; `BRENT_SERVING__ALIAS=challenger` lo cambia). Documentación interactiva en `/docs`.
-
-| Endpoint | Función | Códigos |
-|----------|---------|---------|
-| `GET /health` | *Readiness*: modelo cargado (versión, o el motivo si no lo está) | 200 / 503 |
-| `GET /health/live` | *Liveness*: el proceso responde | 200 |
-| `GET /model-info` | Alias, versión, candidato, motivo de la promoción, run de entrenamiento, umbral y **nombres de las features esperadas** | 200 / 503 |
-| `POST /predict` | `P(sube)` y dirección para las `features` del cuerpo, o para el último día si el cuerpo está vacío | 200 / 422 / 503 |
-
-El modelo se carga del registry al arrancar (con sus tags y la firma MLflow); si aún no hay modelo, la API
-arranca igualmente, responde 503 y reintenta cada `serving.reload_interval_seconds`. La entrada se valida
-con Pydantic (números finitos, sin campos desconocidos), contra la firma del modelo (features ausentes o
-desconocidas) y con `INFERENCE_SCHEMA`; todos los errores son 422 con el formato de FastAPI. La API y
-`brent predict` comparten `predict.predict_features`.
-
-Tests: endpoints y errores con un modelo en memoria, un registry MLflow real en un directorio temporal y un
-test de contrato que compara el esquema OpenAPI con `tests/snapshots/openapi.json` (se regenera a propósito
-con `UPDATE_SNAPSHOTS=1`). Test de carga con Locust (`make serve` y `make load-test`, fuera de pytest), con
-un único proceso uvicorn y Locust en la misma máquina de 4 cores:
-
-| Perfil | Throughput | Fallos | p50 | p95 | p99 |
-|--------|-----------:|-------:|----:|----:|----:|
-| Nominal: 10 usuarios, 0.5–1.5 s entre peticiones | 9.9 req/s | 0 % | 28 ms | **72 ms** | 120 ms |
-| Saturación: 20 usuarios, 0.05–0.2 s | 38.7 req/s | 0 % | 380 ms | 790 ms | 1100 ms |
-
-Una predicción aislada tarda 25–40 ms (≈22 ms son la validación Pandera); un proceso se satura en
-~40 req/s (GIL): para escalar, más procesos o réplicas.
-
-## Observabilidad
-
-- ***Request id***: cada petición recibe un id (el `X-Request-ID` del cliente si es seguro o un UUID nuevo),
-  que se devuelve en la misma cabecera y se añade a todos los logs emitidos mientras se atiende.
-- **Logs estructurados**: `--log-format json` (o `BRENT_LOG_FORMAT=json`, por defecto en la imagen) escribe
-  un objeto JSON por línea con `time`, `level`, `logger`, `message`, `request_id` y los campos `extra`; la API
-  registra una línea de acceso por petición (método, ruta, estado, duración).
-- **Métricas Prometheus** en `GET /metrics` (fuera del contrato OpenAPI): métricas HTTP de
-  `prometheus-fastapi-instrumentator` y propias: `brent_predictions_total{alias,direction,source}`,
-  `brent_model_inference_seconds{alias}` (validación + `predict_proba`), `brent_model_loaded{alias}`,
-  `brent_model_info{alias,version,candidate,kind}` y `brent_model_load_failures_total{alias}`.
-
-## Dashboard de demostración (Streamlit)
-
-`brent dashboard` (extra `dashboard`: `uv sync --extra dashboard`) abre en `:8501` una página con:
-
-- un **aviso de procedencia de los datos**: solo dice *datos reales* si los ficheros coinciden con los
-  checksums de Kaggle registrados (`metrics.json`); si no, advierte de que los resultados son sintéticos;
-- la **predicción del día** pedida a la API (`dashboard.api_url`), con versión y candidato servidos y un aviso
-  cuando el campeón es un *baseline*;
-- pestañas de **precios** (Brent y WTI), **informe estadístico** (AUC con IC, ΔAUC, p de Holm, ROC,
-  fiabilidad), **backtest** tras costes y **explicaciones** SHAP (importancias, beeswarm y waterfall).
-
-Si falta un artefacto, la página indica el comando que lo genera; sin API muestra el error y mantiene el
-resto. Se prueba sin navegador con `AppTest` de Streamlit.
-
-## Contenedores (Docker)
-
-`Dockerfile` *multi-stage*: el `builder` instala con uv solo las dependencias de **runtime** del lockfile
-(`uv sync --frozen --no-dev`) y el `runtime` (`python:3.12-slim-trixie`) copia únicamente ese entorno y
-`configs/`. Se ejecuta con el usuario sin privilegios `brent` (uid 10001) y declara un `HEALTHCHECK` sobre
-`/health`. `docker-compose.yml` levanta la API (`:8000`), el dashboard (`:8501`, *target* `dashboard`) y un
-servidor MLflow con la UI (`:5000`) sobre el mismo registry, más un servicio `trainer` (perfil `train`) que
-ejecuta `brent train && brent report && brent explain`:
+Requiere [uv](https://docs.astral.sh/uv/getting-started/installation/) y `make`. No hacen falta
+credenciales.
 
 ```bash
-docker compose build
-docker compose --profile train run --rm trainer     # una vez: entrena, informe, registra el campeón
-docker compose up -d                                # API :8000/docs, dashboard :8501, MLflow :5000
+git clone https://github.com/rafaelhh04/PrediccionPetroleo-Clasificacion.git && cd PrediccionPetroleo-Clasificacion
+make demo                    # instala, datos sintéticos, entrena, informe + campeón, SHAP (~6 min)
+make -j2 serve dashboard     # API en http://127.0.0.1:8000/docs, dashboard en http://127.0.0.1:8501
 ```
 
-`mlruns/` y `results/` son volúmenes con nombre montados en la misma ruta en todos los contenedores (las
-rutas de los artefactos que registra el trainer son válidas en la API y en MLflow). `data/` se monta en solo
-lectura. En CI se construye la imagen, se valida el compose, se hace un smoke test (usuario no root,
-liveness 200, readiness 503 sin registry) y se escanea con **Trivy** (falla si hay vulnerabilidades
-CRITICAL con corrección disponible).
+`make demo` usa la capa rápida [`configs/demo.yaml`](configs/demo.yaml), que mantiene el protocolo y
+reduce los espacios de búsqueda. Otras formas de ejecutarlo:
 
-## Despliegue en cloud (GCP)
+- **Datos reales:** `uv run brent data download` (credenciales de Kaggle) y `uv run dvc repro`.
+- **Contenedores:** con datos en `data/raw/` (descargados o sintéticos),
+  `docker compose --profile train run --rm trainer && docker compose up -d`.
 
-[`infra/`](infra) describe con **Terraform** toda la infraestructura en Google Cloud, dimensionada para
-costar **~0 €/mes** como demo:
+## Arquitectura
 
-- **Cloud Run**: la API y el dashboard por entorno (`staging`, `prod`) y una UI de MLflow privada; todo
-  escala a cero y se factura por petición. La API usa 1 vCPU / 1 GiB y concurrencia 8, según el p95 de
-  Locust (72 ms) y el techo de ~40 req/s de un proceso.
-- **Cloud Storage**: un bucket versionado con política de ciclo de vida. `data/`, `mlruns/` (store y
-  artefactos de MLflow) y `results/` se montan con GCS FUSE en las mismas rutas que en compose, en solo
-  lectura en la API y el dashboard. `dvc/` es el remote de DVC.
-- **Artifact Registry** (tags inmutables, limpieza automática), **Secret Manager** y una **cuenta de
-  servicio** por carga de trabajo con permisos solo sobre el bucket y cada secreto. Estado de Terraform en
-  GCS con bloqueo.
-- **Backend de MLflow**: SQLite en el bucket por defecto (gratis, un único escritor) o **Cloud SQL**
-  PostgreSQL con una variable (`mlflow_backend = "cloudsql"`, ~9–10 USD/mes).
-
-**Despliegue continuo** ([`cd.yml`](.github/workflows/cd.yml)): cada merge a `main` que cambia la imagen
-se despliega sin claves (**OIDC + Workload Identity Federation**). Cada commit se construye una sola vez
-con el SHA como tag y se sube a Artifact Registry con **atestación de procedencia**. El mismo digest va a
-**staging** y, tras una aprobación manual, a **producción**. Cada despliegue crea primero una revisión
-`candidate` sin tráfico y le pasa un [smoke test](scripts/smoke_test.py) (`/health` = 200 con modelo
-cargado, una predicción, un 422). Solo entonces mueve el tráfico. El rollback es un cambio de tráfico a
-la revisión anterior ([`rollback.yml`](.github/workflows/rollback.yml)).
-
-**Reentrenamiento programado**: Cloud Run Jobs lanzados por Cloud Scheduler, con `brent data ingest` en
-días laborables y `brent retrain` cada semana. Cada reentrenamiento ingiere los días nuevos, entrena con
-el snapshot más esos días y genera el informe. Aplica la **regla de promoción existente** (un modelo solo
-sustituye al baseline si lo supera con significancia) y explica los modelos. Es **idempotente**: se salta
-si los datos, la configuración de entrenamiento y la versión del código son los de la última ejecución
-correcta. Trabaja sobre una copia local del registry SQLite y solo la publica si termina bien
-(`--stage-store`); después notifica el resultado a un webhook de chat (`notify.webhook_url`, desde Secret
-Manager). La API comprueba su alias cada `serving.refresh_interval_seconds` y carga la versión nueva en
-segundo plano, sin reiniciar.
-
-**Monitorización de drift (Evidently)**: `brent monitor drift` se ejecuta cada día laborable tras la
-ingesta. Compara las features de los **últimos 60 días** con los **756 anteriores**, con los datos en vivo
-si existen. Usa el `DataDriftPreset` de Evidently (test de Kolmogorov-Smirnov por columna) y trata la
-**P(up)** del modelo servido como una columna más, que mide el *prediction drift*. Las features de
-calendario se excluyen. Se genera una **alerta** al webhook si deriva el 50 % de las features
-(`monitoring.drift_share`) o si derivan las predicciones. El informe HTML, un resumen JSON y el
-histórico se guardan en `results/drift/` y se muestran en la pestaña *Monitoring* del dashboard.
-
-`make infra-check` ejecuta `terraform fmt`/`validate` y `terraform test` con *providers* simulados (sin
-credenciales). CI añade **tflint**, el escaneo IaC de **Trivy**, **actionlint** y un `terraform plan` con
-una identidad de solo lectura cuando GCP está configurado. Pasos de despliegue, diagramas y tabla de
-costes en [infra/README.md](infra/README.md).
-
-## Resultados (AUC-ROC)
-
-> **¿Qué cifras son reales?** Solo la primera tabla (ejecución antigua del código original con los datos de
-> Kaggle). Todas las demás proceden del dataset **sintético** (paseo aleatorio con el esquema de Kaggle) y
-> demuestran la maquinaria de evaluación, no el mercado del Brent. La [model card](docs/MODEL_CARD.md)
-> reúne uso previsto, métricas con intervalos, limitaciones y riesgos.
-
-Ejecución de referencia del proyecto original con los datos de Kaggle. Es anterior a las correcciones de
-la Fase 3 (p. ej. el bug de la última etiqueta) y aún no se ha repetido con datos reales: Kaggle no es
-accesible desde el entorno de desarrollo, así que las cifras posteriores se reproducen con el dataset
-sintético de los tests.
-
-| Modelo | Train | Validación | Test |
-|--------|------:|-----------:|-----:|
-| Logistic Regression | 0.5507 | 0.4800 | 0.4858 |
-| SVM (RBF) | 0.5646 | 0.4700 | 0.4909 |
-| Random Forest | 0.7342 | 0.4936 | 0.4927 |
-| MLP NumPy | 0.5717 | 0.4933 | 0.5002 |
-
-Ningún modelo supera al azar fuera de muestra, coherente con la hipótesis de mercado eficiente en su forma
-débil para retornos diarios.
-
-**Informe estadístico con el dataset sintético** (no son datos reales; fuera de muestra 2024-01-01 a
-2026-03-11, 573 días, IC 95 % por block bootstrap, baseline de referencia: persistencia, AUC 0.5073), con
-las features v2:
-
-| Modelo | AUC OOS [IC 95 %] | ΔAUC vs persistencia [IC 95 %] | p (Holm) | Sharpe (5 pb) |
-|--------|-------------------|--------------------------------|---------:|--------------:|
-| Logistic Regression | 0.536 [0.489, 0.582] | +0.028 [−0.026, +0.082] | 1.000 | 1.11 |
-| SVM (RBF) | 0.491 [0.442, 0.543] | −0.016 [−0.075, +0.046] | 1.000 | 0.79 |
-| Random Forest | 0.510 [0.465, 0.552] | +0.003 [−0.052, +0.057] | 1.000 | −0.27 |
-| MLP NumPy | 0.501 [0.453, 0.549] | −0.007 [−0.069, +0.056] | 1.000 | 1.00 |
-| LightGBM | 0.450 [0.401, 0.497] | −0.057 [−0.116, +0.002] | 0.465 | −0.24 |
-
-Todos los intervalos de AUC contienen 0.5, ningún modelo supera a la persistencia ni a la
-*no-information rate* y ninguna estrategia bate a buy & hold tras costes (Sharpe 1.06; la diferencia de la
-mejor, la regresión logística, es +0.06 [−1.09, +1.18]): no hay capacidad predictiva que encontrar.
-LightGBM ilustra la maldición del ganador: su mejor trial de Optuna alcanzó un AUC de 0.517 en CV (el máximo
-de 50 estimaciones ruidosas) y cayó a 0.450 fuera de muestra.
-
----
-
-## Estructura del proyecto
-
-```text
-├── configs/                    # default.yaml (configuración) y data_checksums.json
-├── docs/ROADMAP.md             # plan de profesionalización y registro de progreso
-├── docs/MODEL_CARD.md          # uso previsto, datos, métricas con IC, limitaciones y riesgos
-├── src/brent_forecast/
-│   ├── cli.py                  # CLI con Typer (`brent`)
-│   ├── config.py               # configuración tipada (pydantic-settings)
-│   ├── logging_config.py       # logging a consola y a fichero
-│   ├── pipeline.py             # orquestación del entrenamiento
-│   ├── predict.py              # predicción del día siguiente (CLI y API)
-│   ├── retrain.py              # reentrenamiento programado (idempotente, regla de promoción, avisos)
-│   ├── notify.py               # notificaciones por webhook de los jobs programados
-│   ├── monitoring/             # drift de datos y predicciones con Evidently (`brent monitor drift`)
-│   ├── api/                    # servicio de inferencia FastAPI (`brent serve`)
-│   ├── dashboard/              # demo en Streamlit (`brent dashboard`)
-│   ├── data/                   # descarga de Kaggle + checksums, carga y merge
-│   ├── features/               # label, features, VIF, split, winsorización, escalado
-│   ├── models/                 # LogReg, SVM, RF, MLP NumPy, LightGBM, baselines y tuning
-│   └── evaluation/             # métricas, gráficas, curvas de aprendizaje, evaluación final
-├── tests/                      # tests unitarios, de leakage, gradient check y propiedades
-├── .github/                    # CI, Dependabot, plantillas, CODEOWNERS, ruleset
-├── Dockerfile / .dockerignore  # imagen de inferencia multi-stage (uv, no root, HEALTHCHECK)
-├── docker-compose.yml          # API + dashboard + servidor MLflow (+ trainer puntual)
-├── infra/                      # Terraform para GCP: bootstrap (estado, registry, WIF) + stack de Cloud Run
-├── scripts/smoke_test.py       # comprobación post-despliegue usada por el CD
-├── Makefile
-└── pyproject.toml / uv.lock
+```mermaid
+flowchart LR
+    DATA[("Kaggle · Yahoo · FRED")] --> PAN{{"Contratos Pandera"}} --> DVC["Pipeline DVC<br/>features · train · report · explain"]
+    DVC -- "regla de promoción" --> REG[("Registry MLflow<br/>champion / challenger")]
+    REG --> API["FastAPI"] --> DASH["Streamlit"]
+    GHA["GitHub Actions<br/>CI · CD con OIDC"] --> RUN["Cloud Run<br/>staging → producción"]
+    JOBS["Cloud Run Jobs<br/>ingesta · reentrenamiento · drift"] --> REG
 ```
+
+El diagrama completo y cada capa se describen en el [README en inglés](README.md#architecture).
+
+## Decisiones de ingeniería clave
+
+- **Walk-forward purgado** (purga de 1 día, embargo de 5) con todo el preprocesado dentro de cada
+  `Pipeline`. Hay tests de truncamiento que prueban que ninguna feature mira al futuro.
+- **Los baselines son candidatos de pleno derecho.** Para promocionar un modelo hacen falta un DeLong-Holm
+  con p < 0.05 *y* un intervalo bootstrap de ΔAUC por encima de cero.
+- **Incertidumbre antes que estimaciones puntuales:** *block bootstrap* de 21 días emparejado y un
+  backtest con 5 pb por operación.
+- **MLP desde cero en NumPy**, con API de scikit-learn y *gradient check* numérico (error ≤ 2.5e-9).
+- **Una única ruta de predicción** (CLI, API y drift). El contrato es la firma MLflow + Pandera, y un
+  snapshot de OpenAPI detecta cambios incompatibles.
+- **Cloud barato y sin claves**, ~0 €/mes:
+  - Cloud Run escala a cero y GCS FUSE monta las mismas rutas que compose.
+  - MLflow corre sobre SQLite con un único escritor (Cloud SQL opcional).
+  - El despliegue usa WIF y un único digest de staging a producción.
+- **Operar, no solo desplegar.** El reentrenamiento semanal es idempotente y aplica la misma regla de
+  promoción; el drift diario se analiza con Evidently y alerta por webhook.
+
+## Documentación
+
+- Guías (en inglés):
+  - [uso](docs/guide/usage.md);
+  - [metodología](docs/guide/methodology.md);
+  - [MLOps](docs/guide/mlops.md);
+  - [serving](docs/guide/serving.md);
+  - [cloud](docs/guide/cloud.md);
+  - [resultados](docs/guide/results.md).
+- [Model card](docs/MODEL_CARD.md).
+- [Infraestructura](infra/README.md).
+- [Roadmap y notas de cierre de cada fase](docs/ROADMAP.md).
+- [Cómo contribuir](CONTRIBUTING.md).
 
 ## Desarrollo
 
-`make install` (dependencias + hooks), `make lint` (ruff, codespell, mypy estricto), `make test`,
-`make coverage`, `make help`. ~130 tests con datos sintéticos, guardas de *data leakage*, *gradient check*
-numérico del MLP y tests de propiedades (Hypothesis); CI en Python 3.12 y 3.13 en cada PR. Código,
-docstrings, logs y commits en inglés; Conventional Commits; semilla `42`. Guía completa en
-[CONTRIBUTING.md](CONTRIBUTING.md).
+```bash
+make install     # uv sync --frozen + hooks de pre-commit
+make lint        # ruff, codespell, mypy --strict
+make test        # suite rápida (`make test-all` añade los end-to-end lentos)
+make coverage    # cobertura de ramas, falla por debajo del 85 %
+```
 
 ## Limitaciones conocidas
 
-- **Resultados sintéticos.** Desde el entorno de desarrollo no se alcanza Kaggle, Yahoo Finance ni FRED.
-  Todas las cifras posteriores a la primera tabla de resultados salen del dataset sintético.
-- **Datos en vivo.** No hay fuente en vivo para el GPR ni para los eventos: el GPR se arrastra con su
-  último valor y los días nuevos no tienen evento. Los futuros sustituyen a los precios spot.
-- **Backtest.** No modela el roll de futuros, la financiación ni el slippage variable.
-- **Tiempo de entrenamiento.** `brent train` tarda unos 12 minutos en 4 cores; `dvc repro` lo evita si
-  nada cambió.
+- **Resultados sintéticos**: falta ejecutar la pipeline con los datos reales.
+- **Sin URL pública todavía**: la infraestructura está validada sin credenciales. Desplegarla requiere un
+  proyecto de GCP ([infra/README.md](infra/README.md)).
+- **Datos en vivo**: no hay fuente en vivo para el índice de riesgo geopolítico ni para los eventos.
+- **Backtest**: ignora el roll de futuros, la financiación y el slippage variable.
 
-## Autor
+## Autor y licencia
 
-Rafael Hernando Herias — proyecto individual de la asignatura de Aprendizaje Automático (curso 2025-26).
-
-## Licencia
-
-[MIT](LICENSE)
+Rafael Hernando Herias. Empezó como proyecto individual de la asignatura de Machine Learning (2025-26).
+Licencia [MIT](LICENSE).
