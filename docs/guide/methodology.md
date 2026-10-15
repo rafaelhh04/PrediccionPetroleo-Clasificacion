@@ -123,6 +123,6 @@ importances therefore describe what generalises, not what was memorised.
   beeswarm plot plus mean |SHAP|; the local view is a waterfall plot of the most recent out-of-sample day.
   Tests check additivity (base value + Σ SHAP = model output).
 
-On the synthetic data the top permutation importances are within about 0.01–0.015 AUC with comparable
+On the synthetic data the top permutation importances are within about 0.015–0.018 AUC with comparable
 standard deviations, and the features ranked first differ between models. That pattern is what an absence
 of stable signal looks like.
