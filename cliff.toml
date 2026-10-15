@@ -2,7 +2,8 @@
 # Conventional Commits of the history (https://git-cliff.org/docs/configuration).
 #
 #   make changelog VERSION=X.Y.Z               # before tagging a release (see CONTRIBUTING.md)
-#   git cliff --latest --strip all             # release notes of the last tag (release.yml)
+#   git cliff --latest --strip all             # release notes of a pushed tag (release.yml)
+#   git cliff --unreleased --tag vX.Y.Z --strip all   # release notes of a dispatched release
 
 [changelog]
 header = """
