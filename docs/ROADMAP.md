@@ -147,7 +147,8 @@ y concluye honestamente. Si no hay señal, se documenta como hallazgo (hipótesi
 | `docs/technical-writeup` | Artículo técnico (blog/Medium/dev.to): "Why 4 models can't beat a coin flip on Brent — and how to prove it". |
 | `chore/release-v1` | `CHANGELOG.md` generado (release-please), tag `v1.0.0`, GitHub Release. |
 
-**Entregables para el CV:** 3–4 *bullets* cuantificados, p. ej.:
+**Entregables para el CV:** 3–4 *bullets* cuantificados (versión final, con las cifras reales, en las
+*Notas de cierre — Fase 7*), p. ej.:
 - *Built an end-to-end ML system (data → MLflow/DVC → FastAPI on Cloud Run) with CI/CD, 90 % test coverage and IaC (Terraform).*
 - *Implemented a neural network from scratch in NumPy, validated by numerical gradient checking.*
 - *Designed a leakage-safe walk-forward evaluation with block-bootstrap CIs and an economic backtest.*
@@ -181,7 +182,7 @@ Si el tiempo es limitado, el **mínimo viable de portfolio** es: Fases 1 + 2 + 3
 | 4 MLOps | ✅ | `feat/experiment-tracking` (#25), `feat/data-versioning` (#26), `feat/data-validation` (#27), `feat/data-ingestion-live` (#28), `fix/dvc-reproducible-lock` (#29), `docs/phase-4-closing` (#30) | MLflow (runs anidados, artefactos, skops, registry con alias `champion`/`challenger` y regla de promoción testeada) + DVC (6 etapas, `dvc.lock`, remote local) + Pandera (5 contratos) + ingesta Yahoo/FRED + `brent predict`. Campeón = baseline de persistencia (ningún modelo la supera). 516 tests, 98.5 % cobertura. Ver notas de cierre ↓ |
 | 5 Serving | ✅ | `feat/inference-api` (#32), `test/api-tests` (#33), `feat/docker` (#34), `feat/observability` (#39), `feat/demo-dashboard` (#41), `chore/dependabot-docker-python` (#42), `docs/phase-5-closing` | FastAPI (`/predict`, `/health`, `/model-info`) servida desde el registry por alias, contrato = firma MLflow + Pandera, 422/503 + snapshot OpenAPI + Locust (p95 72 ms nominal) + Docker multi-stage (API y dashboard, no root, HEALTHCHECK) + compose (API, dashboard, MLflow, trainer) + Trivy en CI + Prometheus/logs JSON/request id + Streamlit con aviso de datos sintéticos. 587 tests, 98.1 % cobertura. Ver notas de cierre ↓ |
 | 6 Cloud y CD | ✅ (listo para aplicar; sin credenciales de GCP) | `feat/infra-terraform` (#44), `ci/continuous-deployment` (#45), `feat/scheduled-retraining` (#49), `feat/drift-monitoring` (#50), `docs/phase-6-closing` | Terraform en dos stacks (bootstrap con estado, Artifact Registry y WIF; stack con GCS, Cloud Run, Secret Manager, jobs, Scheduler y Cloud SQL opcional) + `terraform test` con providers simulados + tflint/Trivy IaC. CD sin claves (OIDC) build → attest → staging → aprobación → prod, con revisión candidata y smoke test. `brent retrain` idempotente con la regla de promoción existente, notificaciones y recarga en caliente en la API. Drift con Evidently y alerta. 645 tests, 97.8 % de cobertura. Coste ~0 €/mes. Ver notas de cierre ↓ |
-| 7 | ⏳ pendiente | | |
+| 7 Portfolio | ✅ | `feat/synthetic-demo` (#52), `docs/readme-portfolio` (#53), `docs/mkdocs-site` (#54), `docs/technical-writeup` (#55), `chore/release-v1` (#56), `ci/release-dispatch` (#57), `ci/release-on-version-bump` (#58), `docs/phase-7-closing` | Demo de 3 comandos sobre datos sintéticos (`make demo`, ~6 min) + README de portfolio (TL;DR, badges, Mermaid, GIF) + MkDocs Material con referencia de la API, 8 ADR y artículo técnico (`--strict` en CI, Pages listo para activarse) + v1.0.0 con CHANGELOG (git-cliff) y release automática por subida de versión. Tablas sintéticas refrescadas. 657 tests, 97.9 % cobertura. Ver notas de cierre ↓ |
 
 
 ### Notas de cierre — Fase 1
@@ -606,6 +607,182 @@ datos siguen siendo **sintéticos**: el campeón es la persistencia y la regresi
   validación del provider (emails de cuentas de servicio): hay que fijarlos con `mock_resource`.
 - `ruff format` reescribe aserciones encadenadas: hay que ejecutarlo antes de commitear los tests.
 - Lanzar la suite completa y el e2e lento a la vez duplica el tiempo de ambos (4 cores).
+
+### Notas de cierre — Fase 7
+
+**Resultado.** El proyecto ya se puede presentar en una entrevista sin explicaciones previas:
+
+- **README de portfolio.**
+  - TL;DR con el resultado clave: ningún modelo supera a los baselines, y la regla de promoción despliega
+    la persistencia.
+  - Badges, diagrama Mermaid de extremo a extremo, GIF y capturas reales de la demo.
+  - Quickstart de 3 comandos verificado en un clon limpio, y decisiones de ingeniería.
+- **Sitio MkDocs Material** con referencia de la API (mkdocstrings), 8 ADR, guías, model card y un
+  artículo técnico.
+- **Release v1.0.0 publicada**: CHANGELOG generado con git-cliff, wheel y sdist adjuntos y release
+  automática al subir la versión en `main`.
+
+Para que la demo funcione sin credenciales se añadió un PR que no estaba en el plan:
+
+- `brent data synthetic`;
+- configuración por capas (`--config` repetible, con *deep merge*);
+- `configs/demo.yaml`;
+- `make demo`.
+
+Al refrescar las tablas con una ejecución completa se resolvió también la deuda de "tablas desactualizadas"
+de la Fase 5. Las métricas siguen siendo **sintéticas**: el campeón es la persistencia (AUC 0.507), y la
+regresión logística (0.532) queda de challenger.
+
+**Verificación del DoD.**
+- **README de portfolio.**
+  - Clon limpio + `time make demo` → `real 5m58.7s`, exit 0. `promotion.json`: champion = persistence,
+    challenger = random_forest.
+  - `make -j2 serve dashboard` → `/health` `{"status":"ok","model_loaded":true,...}` y `/predict` 200.
+  - El GIF (6 fotogramas, 382 KB) y las capturas salen de ese clon con `scripts/record_demo.py`
+    (Playwright + Pillow).
+  - Los diagramas Mermaid del README, README.es e `infra/README.md` se renderizan con mermaid 11 en
+    Chromium.
+- **Sitio de documentación.**
+  - `uv run --group docs mkdocs build --strict` → *Documentation built*, 0 warnings.
+  - El job `Docs (mkdocs build --strict)` está en `ci.yml`.
+  - `docs.yml` se ejecutó en `main`: build *success*, artefacto de Pages subido y *deploy skipped* (falta
+    `PAGES_ENABLED`). Queda **listo para activarse** (pasos en CONTRIBUTING).
+- **ADRs y artículo enlazados desde el README.** Sección *Key engineering decisions* → `docs/adr/`;
+  tabla *Documentation* y enlace bajo los badges → `docs/blog/why-models-cant-beat-a-coin-flip.md`.
+- **CHANGELOG, 1.0.0, tag y release.**
+  - `CHANGELOG.md`: 185 entradas, 9 grupos y la entrada 0.1.0. `make changelog VERSION=1.0.0` lo
+    regenera sin diff.
+  - `uv version --short` → `1.0.0`.
+  - Tag `v1.0.0` → `edf8b20` (merge de #56). La
+    [GitHub Release](https://github.com/rafaelhh04/PrediccionPetroleo-Clasificacion/releases/tag/v1.0.0)
+    la creó `release.yml` al mergear #58, con los *highlights*, las 185 entradas,
+    `brent_forecast-1.0.0-py3-none-any.whl` y `brent_forecast-1.0.0.tar.gz`.
+- **CV**: bullets cuantificados al final de estas notas.
+- **Calidad.**
+  - CI verde en 3.12 y 3.13 en los 7 PRs (#52–#58) y en este cierre.
+  - Local: `uv run pytest --cov` → *657 passed, 3 skipped, 2 deselected* (slow), cobertura de ramas
+    **97.87 %** (umbral 85).
+  - `mypy --strict` → *Success: no issues found in 50 source files*, sin `type: ignore` en `src/`
+    (`grep` → 0).
+  - `pre-commit run --all-files` en verde (11 hooks).
+  - Los 195 commits sin merge de la historia son de rafaelhh04, sin trailers ni menciones a asistentes
+    (`git log --format=%B | grep -ciE "co-authored|generated with"` → 0).
+
+**Decisiones y desviaciones respecto al plan.**
+- **PR extra `feat/synthetic-demo`** (#52). El DoD exige un quickstart verificado en un entorno limpio, y
+  `brent data download` necesita credenciales de Kaggle (además, la red las bloquea).
+  - El generador sintético pasó de `tests/conftest.py` a `brent_forecast.synthetic`, fuera de
+    `brent_forecast.data`, que es dependencia de etapas DVC: así no se invalida `dvc.lock`.
+  - Con `--config` repetible (`YamlConfigSettingsSource(deep_merge=True)`), la demo es una capa de 30
+    líneas y no una copia de `default.yaml`.
+  - `make demo` tarda ~6 min frente a ~10 de la ejecución completa, con el mismo protocolo y la misma
+    conclusión.
+- **Quickstart en 3 comandos:** `git clone … && cd …`, `make demo` y `make -j2 serve dashboard`
+  (API y dashboard en paralelo con un solo comando).
+- **Tablas refrescadas.** Una ejecución completa con el lockfile actual reproduce exactamente las cifras
+  anotadas en la Fase 5: LR 0.532, RF 0.519, MLP 0.510, LightGBM 0.512 y Sharpe LR 1.16.
+  - Se actualizaron README, guía de resultados, model card, artículo y ADR 0003.
+  - El ejemplo de *winner's curse* pasa de LightGBM (que ya no cae a 0.450) al SVM: mejor AUC en
+    desarrollo (0.514) y peor fuera de muestra (0.492).
+  - La ablación v1/v2 se etiqueta como ejecución de la Fase 3.
+- **README** reducido de 690 a ~230 líneas. La referencia técnica se movió sin reescribirla a
+  `docs/guide/` (seis páginas), con enlaces absolutos a GitHub para que funcionen en GitHub y en
+  MkDocs. Se corrigió de paso la tabla DVC rota (la fila `explain` estaba mezclada con la de salidas).
+- **MkDocs.**
+  - Grupo `docs` con `mkdocs>=1.6,<2`: MkDocs 2.0 elimina el sistema de plugins y Material lo avisa.
+  - `ruff` en el grupo para formatear firmas.
+  - CI instala solo ese grupo (`--only-group docs --no-install-project`), porque griffe lee `src/`
+    estáticamente.
+  - La validación de enlaces y anclas de MkDocs 1.6 está en `warn`, así que `--strict` la convierte en
+    error.
+  - Las listas anidadas pasan a 4 espacios en las páginas publicadas: Python-Markdown no admite 2;
+    GitHub renderiza ambas.
+  - El ROADMAP (en español) se excluye del sitio y se enlaza a GitHub.
+- **Pages:** despliegue con las actions oficiales y la puerta `vars.PAGES_ENABLED`, el mismo patrón que el
+  CD, para que el workflow quede en verde hasta que el usuario active Pages.
+- **ADRs:** formato MADR ligero. Hay **8**: los 7 pedidos + demo/configuración por capas.
+- **Artículo** en `docs/blog/`, como página normal (no el plugin de blog de Material, que añade archivo y
+  categorías sin necesidad). El título conserva "4 models" (el proyecto original) y explica que LightGBM
+  se añadió después.
+- **Changelog con git-cliff, no release-please.** release-please necesita la API de GitHub y un PR de
+  release por versión; git-cliff funciona sin red y es verificable (el comando reproduce el fichero).
+  - `make changelog` usa `uvx git-cliff@2.14.2`.
+  - La GitHub Release la crea `release.yml` al empujar el tag. Comprueba que el tag coincide con
+    `uv version`, adjunta wheel y sdist, y añade los *highlights* de `.github/release-notes/v1.0.0.md`.
+- **Captura de la demo:**
+  - el navegador headless no pasa por el proxy y jsdelivr está bloqueado, así que `record_demo.py
+    --cdn-dir` sirve Swagger UI desde `npm pack swagger-ui-dist@5`;
+  - capturar tras subir la versión dejó el GIF y la captura del informe idénticos byte a byte (solo
+    cambió la de Swagger).
+
+- **Publicación de la release.** El remoto git del entorno no acepta tags (`send-pack: unexpected
+  disconnect`; `git ls-remote --tags` vacío) y la integración de GitHub responde `403 Resource not
+  accessible by integration` a `workflow_dispatch`.
+  - #57 añadió la ejecución manual (`gh release create --target <sha>` crea el tag en GitHub).
+  - #58 añadió la **release por subida de versión**: un push a `main` que toca los ficheros de release,
+    con una versión sin tag, publica el commit de primer padre que fijó esa versión
+    (`git log --first-parent -G'^version = "X.Y.Z"'`, el merge del PR de release). Si el tag ya
+    existe, termina sin hacer nada.
+  - Las tres vías conviven; git-cliff corre en todas con el mismo `uvx git-cliff@2.14.2` que
+    `make changelog`.
+
+**Deuda técnica / pendientes.**
+- **Del usuario.**
+  - Activar Pages (Settings → Pages → *GitHub Actions*) y la variable `PAGES_ENABLED=true`.
+  - Las pendientes de fases anteriores: credenciales de GCP y `terraform apply` para la URL pública,
+    `CODECOV_TOKEN`, importar el ruleset, dominios de datos y revisar los PRs de Dependabot #40, #46,
+    #47 y #48.
+- **Datos reales**: siguen bloqueados. Todas las cifras públicas están marcadas como sintéticas.
+- **Imagen de la API** grande (~390 MB comprimida): separar imágenes o extras serve/train/monitor.
+- La `site_url` de MkDocs y el badge *Docs* apuntan a `rafaelhh04.github.io/...`, que dará 404 hasta
+  activar Pages (el README lo dice).
+- `docs/index.md` se generó a partir del README: si el README cambia, hay que sincronizarlo a mano (o
+  usar `pymdownx.snippets` con secciones marcadas).
+
+**Lecciones de proceso.**
+- Un dataset sintético con la respuesta conocida ("no hay señal") es la mejor demo de una metodología de
+  evaluación, y además un test de calibración del protocolo.
+- `pkill -f "patrón"` sin la clase de caracteres (`[p]atrón`) mata la propia shell (exit 144).
+- `uv add` de un grupo nuevo solo añade paquetes al lockfile (diff aditivo). `uv sync` sin `--group`
+  los desinstala del entorno local: no afecta a CI.
+- El hook `end-of-file-fixer` reescribe la salida de git-cliff si el *footer* termina en salto de línea.
+  Conviene ajustar la plantilla para que `make changelog` sea idempotente.
+
+**Bullets para el CV (cifras reales del repositorio).**
+- *Built an end-to-end ML system that tests next-day Brent direction with 5 models (incl. a from-scratch
+  NumPy MLP and Optuna-tuned LightGBM) against 4 baselines, using purged walk-forward validation,
+  block-bootstrap CIs and DeLong/Holm tests; a codified promotion rule deploys the baseline unless a
+  model wins with significance.*
+- *Productionised it with FastAPI, Streamlit, MLflow (registry), DVC and Pandera, in Docker images gated
+  by Trivy. Deployed with Terraform on GCP Cloud Run, with keyless OIDC CD (staging → production
+  through smoke-tested candidate revisions), weekly retraining and Evidently drift alerts, at an
+  estimated ~0 €/month.*
+- *Enforced quality across 50 pull requests and 195 Conventional Commits:*
+  - *657 tests (+2 slow end-to-end) at 97.8 % branch coverage, `mypy --strict` with no ignores;*
+  - *a numerical gradient check (≤ 2.5e-9), leakage, property and API-contract tests;*
+  - *CI on Python 3.12/3.13 with IaC scanning.*
+- *Documented and released it as v1.0.0: a MkDocs site with a generated API reference, 8 ADRs, a model
+  card, a technical article and a git-cliff changelog; a one-command demo (`make demo`, ~6 min) on
+  synthetic data.*
+
+**Mejoras futuras priorizadas** (la Fase 7 es la última del plan; no hay fase siguiente):
+
+1. **Datos reales.** `brent data download` + `dvc repro` con Kaggle accesible; commitear los checksums y
+   sustituir todas las tablas sintéticas (README, guía de resultados, model card, artículo, ADR 0003).
+2. **URL pública.** Proyecto GCP, `terraform apply` de los dos stacks, variables `GCP_*`, entornos y
+   primera ejecución de `brent-retrain`. Activar Pages (`PAGES_ENABLED`).
+3. **Imágenes por responsabilidad.** Extras o imágenes `serve` (mlflow-skinny + pyfunc), `train` y
+   `monitor`, para reducir la imagen de la API (~390 MB) y su superficie de CVE.
+4. **Evaluación más dura.** CV anidada o validación separada para el tuning (optimismo medido), *Deflated
+   Sharpe Ratio* y *probability of backtest overfitting*, y horizontes de 5 y 21 días.
+5. **Log de predicciones.** Guardar `P(up)` y el resultado realizado al día siguiente, para monitorizar
+   rendimiento real y calibración en producción, no solo drift.
+6. **Fuentes en vivo completas.** Índice GPR (Caldara & Iacoviello) y eventos con fecha, en vez de
+   arrastrar el último valor.
+7. **Gobernanza.** Importar el ruleset, `CODECOV_TOKEN`, revisar Dependabot (#40, #46–#48) y firmar
+   commits y tags.
+8. **Docs.** Sincronizar `docs/index.md` con el README mediante `pymdownx.snippets`, y versionar el sitio
+   con `mike` a partir de la 1.1.
 
 ---
 
