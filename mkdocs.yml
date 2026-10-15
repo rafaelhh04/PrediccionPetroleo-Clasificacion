@@ -93,6 +93,9 @@ nav:
       - Cloud, CD and monitoring: guide/cloud.md
       - Results: guide/results.md
   - Model card: MODEL_CARD.md
+  - Articles:
+      - blog/index.md
+      - Why 4 models can't beat a coin flip: blog/why-models-cant-beat-a-coin-flip.md
   - Architecture decisions:
       - adr/index.md
       - adr/0001-src-layout-and-uv.md

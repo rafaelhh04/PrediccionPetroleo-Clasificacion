@@ -4,6 +4,7 @@ Can machine learning predict whether Brent crude closes higher tomorrow? This si
 end-to-end ML system that answers **no**, proves it statistically, and is engineered to refuse deploying
 a model that is merely lucky.
 
+[Read the article](blog/why-models-cant-beat-a-coin-flip.md){ .md-button .md-button--primary }
 [Source on GitHub](https://github.com/rafaelhh04/PrediccionPetroleo-Clasificacion){ .md-button }
 
 ## TL;DR
