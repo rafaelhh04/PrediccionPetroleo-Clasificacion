@@ -50,10 +50,10 @@ Format: Mitchell et al., *Model Cards for Model Reporting* (FAT* 2019).
   and every inference row (types, ranges, unique increasing dates, finite features). Invalid data
   stops the pipeline with a message listing every failed check.
 - **Split**:
-  - Development period: before 2024-01-01, used for tuning.
-  - Out-of-sample period: 2024-01-01 → 2026-03-11 (573 days in the synthetic run), evaluated by purged
+    - Development period: before 2024-01-01, used for tuning.
+    - Out-of-sample period: 2024-01-01 → 2026-03-11 (573 days in the synthetic run), evaluated by purged
     walk-forward in 10 windows of 63 days.
-  - Each model is refitted before every window on all older data, minus purge (1 day) and embargo
+    - Each model is refitted before every window on all older data, minus purge (1 day) and embargo
     (5 days).
 
 ## Evaluation
@@ -154,10 +154,10 @@ data and the model, not for retraining by itself: with no predictive signal, ret
 ## Quantitative safeguards
 
 - Leakage tests:
-  - fitted preprocessing state depends on training rows only;
-  - rewriting the future never changes past features, labels or predictions;
-  - a truncation test for every feature;
-  - spies prove that tuning, learning curves and explanations only see development rows.
+    - fitted preprocessing state depends on training rows only;
+    - rewriting the future never changes past features, labels or predictions;
+    - a truncation test for every feature;
+    - spies prove that tuning, learning curves and explanations only see development rows.
 - Walk-forward geometry is tested with Hypothesis properties: strict gap, order and non-overlap.
 - The MLP's analytic gradients match finite differences (relative error < 1e-6), and it passes
   scikit-learn's `check_estimator`.

@@ -1,0 +1,116 @@
+site_name: Brent Direction Classifier
+site_description: >-
+  End-to-end ML system that tests whether Brent's next-day direction is predictable, and proves
+  statistically that it is not.
+site_author: Rafael Hernando Herias
+site_url: https://rafaelhh04.github.io/PrediccionPetroleo-Clasificacion/
+repo_url: https://github.com/rafaelhh04/PrediccionPetroleo-Clasificacion
+repo_name: rafaelhh04/PrediccionPetroleo-Clasificacion
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; 2025-2026 Rafael Hernando Herias — MIT licence
+
+# The roadmap is a Spanish working document, linked from the site to GitHub instead of published.
+exclude_docs: |
+  ROADMAP.md
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - navigation.footer
+    - navigation.indexes
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue grey
+      accent: amber
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue grey
+      accent: amber
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: numpy
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: false
+            show_signature_annotations: true
+            separate_signature: true
+            members_order: source
+            filters: ["!^_"]
+            merge_init_into_class: true
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+nav:
+  - Home: index.md
+  - Guide:
+      - Usage: guide/usage.md
+      - Methodology: guide/methodology.md
+      - Reproducibility and MLOps: guide/mlops.md
+      - Serving: guide/serving.md
+      - Cloud, CD and monitoring: guide/cloud.md
+      - Results: guide/results.md
+  - Model card: MODEL_CARD.md
+  - Architecture decisions:
+      - adr/index.md
+      - adr/0001-src-layout-and-uv.md
+      - adr/0002-purged-walk-forward-validation.md
+      - adr/0003-promotion-rule-baseline-champion.md
+      - adr/0004-mlflow-sqlite-vs-cloud-sql.md
+      - adr/0005-gcs-fuse-shared-paths.md
+      - adr/0006-cd-candidate-revision-oidc.md
+      - adr/0007-drift-monitoring-evidently.md
+      - adr/0008-synthetic-demo-layered-config.md
+  - API reference:
+      - reference/index.md
+      - Configuration: reference/config.md
+      - Data: reference/data.md
+      - Features: reference/features.md
+      - Models: reference/models.md
+      - Validation: reference/validation.md
+      - Evaluation: reference/evaluation.md
+      - Tracking and registry: reference/tracking.md
+      - Prediction and serving: reference/serving.md
+      - Operations: reference/operations.md

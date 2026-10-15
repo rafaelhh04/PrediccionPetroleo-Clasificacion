@@ -27,11 +27,11 @@ parameters (keys of `configs/default.yaml`) and outputs:
 - The `download` stage needs Kaggle access. On a machine without it, place the files in `data/raw/`
   (manual download plus `brent data verify`) and record them with `uv run dvc commit download`.
 - `dvc.lock` is machine-independent:
-  - `.dvcignore` excludes Python bytecode;
-  - the files that depend on the MLflow store (`mlflow_run.json`, `promotion.json`) are not DVC outputs;
-  - every model is single-threaded, so predictions are bit-for-bit reproducible.
+    - `.dvcignore` excludes Python bytecode;
+    - the files that depend on the MLflow store (`mlflow_run.json`, `promotion.json`) are not DVC outputs;
+    - every model is single-threaded, so predictions are bit-for-bit reproducible.
 
-  A clean clone + `dvc pull` + `dvc repro --force` gives the same lock.
+    A clean clone + `dvc pull` + `dvc repro --force` gives the same lock.
 - `tests/test_dvc_pipeline.py` checks without DVC that every stage command, parameter and dependency
   still exists, so a rename fails CI instead of `dvc repro`.
 
@@ -46,13 +46,13 @@ local SQLite database under `mlruns/`; point `tracking.uri` at a tracking server
   pipeline refitted on all data. Models are stored with **skops**, not pickle, with an explicit allowlist of
   trusted types.
 - `brent report` adds the statistics to the same run and applies the **promotion rule**:
-  - the best model by out-of-sample AUC becomes `champion` only if it beats the best baseline significantly
+    - the best model by out-of-sample AUC becomes `champion` only if it beats the best baseline significantly
     (Holm-adjusted DeLong and a bootstrap interval above zero);
-  - otherwise the best **baseline** is `champion` and the best model is `challenger`.
+    - otherwise the best **baseline** is `champion` and the best model is `challenger`.
 
-  Deploying a model that cannot beat a naive rule only adds risk. Both are registered as versions of
-  `brent-direction-classifier` with the reason as a tag. `brent report` also writes
-  `results/promotion.json`.
+    Deploying a model that cannot beat a naive rule only adds risk. Both are registered as versions of
+    `brent-direction-classifier` with the reason as a tag. `brent report` also writes
+    `results/promotion.json`.
 - Inference loads a model by alias: `mlflow.sklearn.load_model("models:/brent-direction-classifier@champion")`.
 
 ## Live data and prediction

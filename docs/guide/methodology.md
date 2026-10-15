@@ -21,15 +21,15 @@ load + left-join events ─► label (t+1) ─► feature engineering (past-only
   steps of each model `Pipeline`, refitted on the training rows of every fold and window; tests prove that
   corrupting the future never changes earlier features, training labels or predictions.
 - **Features** (all computed from data up to day *t*; one truncation test per feature proves it):
-  - returns and risk: log returns over 1/3/7 days, 21- and 63-day momentum, 7/30-day volatility and their
+    - returns and risk: log returns over 1/3/7 days, 21- and 63-day momentum, 7/30-day volatility and their
     ratio, Brent–WTI spread;
-  - technical indicators (`features/technical.py`): RSI(14) with Wilder smoothing, MACD(12, 26, 9) line and
+    - technical indicators (`features/technical.py`): RSI(14) with Wilder smoothing, MACD(12, 26, 9) line and
     histogram divided by the price, Bollinger(20, 2) %B and bandwidth;
-  - market context: 1- and 5-day log changes of the VIX and the dollar index (DXY), plus their levels;
-  - geopolitics: 21-day change of the risk index, event and high-severity flags;
-  - calendar: sine/cosine of weekday and month.
+    - market context: 1- and 5-day log changes of the VIX and the dollar index (DXY), plus their levels;
+    - geopolitics: 21-day change of the risk index, event and high-severity flags;
+    - calendar: sine/cosine of weekday and month.
 
-  The VIF > 10 filter then removes collinear features inside each training window.
+    The VIF > 10 filter then removes collinear features inside each training window.
 - **Metrics:** accuracy, macro precision / recall / F1 and ROC AUC (primary, used for model selection),
   over the pooled out-of-sample predictions and per walk-forward window (stability over time).
 
