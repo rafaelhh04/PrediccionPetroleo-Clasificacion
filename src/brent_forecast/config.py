@@ -6,9 +6,12 @@ as the nesting delimiter (e.g. ``BRENT_SPLIT__TRAIN_END=2021-01-01``).
 
 Precedence, highest first: explicit keyword arguments, environment variables,
 YAML file. The YAML file is the single source of default values: the models
-below only declare types and constraints.
+below only declare types and constraints. Several YAML files can be layered
+(e.g. ``configs/default.yaml`` then the overlay ``configs/demo.yaml``): later
+files are deep-merged over earlier ones, so an overlay only lists what changes.
 """
 
+from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
 from typing import Any, Literal, Self
@@ -353,23 +356,42 @@ class Settings(BaseSettings):
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         """Use kwargs > environment > YAML (no .env or secrets files)."""
-        return (init_settings, env_settings, YamlConfigSettingsSource(settings_cls))
+        # deep_merge: a layered YAML file overrides single nested keys, not whole sections.
+        return (
+            init_settings,
+            env_settings,
+            YamlConfigSettingsSource(settings_cls, deep_merge=True),
+        )
 
 
-def load_settings(config_path: Path = DEFAULT_CONFIG_PATH, **overrides: Any) -> Settings:
-    """Load settings from ``config_path``, environment variables and ``overrides``.
+def load_settings(
+    config_path: Path | Sequence[Path] = DEFAULT_CONFIG_PATH, **overrides: Any
+) -> Settings:
+    """Load settings from the YAML file(s), environment variables and ``overrides``.
+
+    Parameters
+    ----------
+    config_path
+        One YAML file, or several layered in order: each later file is deep-merged
+        over the earlier ones (mappings merge key by key, lists are replaced).
+    **overrides
+        Explicit values, with the highest precedence.
 
     Raises
     ------
     FileNotFoundError
-        If the YAML file does not exist.
+        If a YAML file does not exist.
     pydantic.ValidationError
         If the merged configuration is invalid.
     """
-    if not config_path.is_file():
-        raise FileNotFoundError(f"Config file not found: {config_path}")
+    paths = [config_path] if isinstance(config_path, Path) else list(config_path)
+    if not paths:
+        raise FileNotFoundError("No config file given")
+    for path in paths:
+        if not path.is_file():
+            raise FileNotFoundError(f"Config file not found: {path}")
 
     class _FileSettings(Settings):
-        model_config = SettingsConfigDict(yaml_file=config_path)
+        model_config = SettingsConfigDict(yaml_file=paths)
 
     return _FileSettings(**overrides)

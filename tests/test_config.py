@@ -136,3 +136,46 @@ def test_serving_alias_can_be_switched_by_environment(monkeypatch: pytest.Monkey
     serving = load_settings(CONFIG_PATH).serving
     assert serving.alias == "challenger"
     assert serving.live is True
+
+
+def test_layered_files_are_deep_merged(tmp_path: Path) -> None:
+    overlay = tmp_path / "overlay.yaml"
+    overlay.write_text("seed: 7\nmodels:\n  svm:\n    grid:\n      C: [1.0]\n")
+    default = load_settings(CONFIG_PATH)
+
+    settings = load_settings([CONFIG_PATH, overlay])
+
+    assert settings.seed == 7
+    assert settings.models.svm.grid["C"] == [1.0]  # lists are replaced...
+    assert settings.models.svm.grid["gamma"] == default.models.svm.grid["gamma"]  # ...maps merged
+    assert settings.models.svm.params == default.models.svm.params
+
+
+def test_environment_still_overrides_layered_files(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    overlay = tmp_path / "overlay.yaml"
+    overlay.write_text("tuning:\n  n_trials: 5\n")
+    monkeypatch.setenv("BRENT_TUNING__N_TRIALS", "2")
+
+    assert load_settings([CONFIG_PATH, overlay]).tuning.n_trials == 2
+
+
+def test_demo_overlay_is_smaller_but_keeps_the_protocol() -> None:
+    default = load_settings(CONFIG_PATH)
+    demo = load_settings([CONFIG_PATH, CONFIG_PATH.parent / "demo.yaml"])
+
+    assert demo.tuning.n_trials < default.tuning.n_trials
+    assert demo.evaluation.bootstrap_resamples < default.evaluation.bootstrap_resamples
+    # Same data, split, leakage controls, candidates and statistics: only the budget shrinks.
+    for section in ("paths", "data", "split", "preprocessing", "backtest", "tracking"):
+        assert getattr(demo, section) == getattr(default, section), section
+    assert (demo.validation.purge, demo.validation.embargo) == (1, 5)
+    assert demo.evaluation.alpha == default.evaluation.alpha
+    assert demo.models.model_fields_set == default.models.model_fields_set
+
+
+@pytest.mark.parametrize("paths", [[], ["missing.yaml"]])
+def test_layered_files_must_exist(paths: list[str], tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        load_settings([CONFIG_PATH, *(tmp_path / p for p in paths)] if paths else [])

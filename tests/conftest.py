@@ -15,13 +15,17 @@ import pytest
 
 from brent_forecast.config import DEFAULT_CONFIG_PATH, Settings, load_settings
 from brent_forecast.data.load import DateBounds
+from brent_forecast.synthetic import (  # re-exported for the tests
+    make_events_frame,
+    make_oil_frame,
+    write_csv,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = REPO_ROOT / DEFAULT_CONFIG_PATH
 
 OIL_FILENAME = "oil_geopolitics_dataset_2010_2026.csv"
 EVENTS_FILENAME = "geopolitical_events_timeline.csv"
-EVENT_TYPES = ("war", "sanctions", "opec", "conflict", "disaster", "blockade")
 DATE_BOUNDS = DateBounds(date(2009, 1, 1), date(2011, 12, 31), date(2025, 1, 1))
 
 EXPECTED_FEATURES = [  # engineer_features output, in order
@@ -53,66 +57,6 @@ EXPECTED_FEATURES = [  # engineer_features output, in order
     "month_sin",
     "month_cos",
 ]
-
-
-def make_oil_frame(
-    seed: int = 0, start: str = "2010-02-17", end: str = "2026-03-12", step: int = 1
-) -> pd.DataFrame:
-    """Oil dataset with the full Kaggle schema on every ``step``-th business day."""
-    rng = np.random.default_rng(seed)
-    dates = pd.bdate_range(start, end)[::step]
-    n = len(dates)
-    brent = 75 * np.exp(np.cumsum(rng.normal(0, 0.02, n)))
-    wti = brent * np.exp(rng.normal(-0.04, 0.01, n))
-    df = pd.DataFrame({"date": dates})
-    df["brent_price"] = brent
-    df["wti_price"] = wti
-    df["dxy_index"] = 90 + np.cumsum(rng.normal(0, 0.3, n))
-    df["vix"] = np.abs(18 + np.cumsum(rng.normal(0, 0.1, n)))
-    df.loc[rng.choice(n, 20, replace=False), "vix"] = np.nan
-    df["gpr_index"] = np.repeat(rng.normal(100, 20, n // 5 + 1), 5)[:n]
-    df["brent_return"] = df["brent_price"].pct_change() * 100
-    df["wti_return"] = df["wti_price"].pct_change() * 100
-    for k in (1, 3, 7):
-        df[f"brent_lag_{k}"] = df["brent_price"].shift(k)
-    for k in (1, 3, 7):
-        df[f"wti_lag_{k}"] = df["wti_price"].shift(k)
-    for name in ("brent", "wti"):
-        df[f"{name}_volatility_7d"] = df[f"{name}_return"].rolling(7).std()
-        df[f"{name}_volatility_30d"] = df[f"{name}_return"].rolling(30).std()
-    df["brent_wti_spread"] = df["brent_price"] - df["wti_price"]
-    df["event_flag"] = 0
-    df["event_type"] = "none"
-    df["event_description"] = "none"
-    df["event_severity"] = 0
-    flagged = rng.choice(np.arange(40, n), 25, replace=False)
-    df.loc[flagged, "event_flag"] = 1
-    df.loc[flagged, "event_type"] = rng.choice(EVENT_TYPES, 25)
-    df.loc[flagged, "event_description"] = "oil dataset event"
-    df.loc[flagged, "event_severity"] = rng.integers(1, 11, 25)
-    return df
-
-
-def make_events_frame(oil: pd.DataFrame, seed: int = 1, n_events: int = 35) -> pd.DataFrame:
-    """Geopolitical events timeline on dates that exist in ``oil``."""
-    rng = np.random.default_rng(seed)
-    idx = np.sort(rng.choice(np.arange(40, len(oil)), n_events, replace=False))
-    return pd.DataFrame(
-        {
-            "date": oil["date"].iloc[idx].to_numpy(),
-            "event_type": rng.choice(EVENT_TYPES, n_events),
-            "event_description": [f"synthetic event {i}" for i in range(n_events)],
-            "event_severity": rng.integers(1, 11, n_events),
-        }
-    )
-
-
-def write_csv(df: pd.DataFrame, path: Path) -> Path:
-    """Write ``df`` with ISO dates, as the Kaggle files are."""
-    out = df.copy()
-    out["date"] = pd.to_datetime(out["date"]).dt.strftime("%Y-%m-%d")
-    out.to_csv(path, index=False)
-    return path
 
 
 @pytest.fixture(autouse=True)
