@@ -32,6 +32,7 @@ parameters (keys of `configs/default.yaml`) and outputs:
     - every model is single-threaded, so predictions are bit-for-bit reproducible.
 
     A clean clone + `dvc pull` + `dvc repro --force` gives the same lock.
+
 - `tests/test_dvc_pipeline.py` checks without DVC that every stage command, parameter and dependency
   still exists, so a rename fails CI instead of `dvc repro`.
 
@@ -53,6 +54,7 @@ local SQLite database under `mlruns/`; point `tracking.uri` at a tracking server
     Deploying a model that cannot beat a naive rule only adds risk. Both are registered as versions of
     `brent-direction-classifier` with the reason as a tag. `brent report` also writes
     `results/promotion.json`.
+
 - Inference loads a model by alias: `mlflow.sklearn.load_model("models:/brent-direction-classifier@champion")`.
 
 ## Live data and prediction

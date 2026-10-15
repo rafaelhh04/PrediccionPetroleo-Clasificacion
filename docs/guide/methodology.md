@@ -30,6 +30,7 @@ load + left-join events ─► label (t+1) ─► feature engineering (past-only
     - calendar: sine/cosine of weekday and month.
 
     The VIF > 10 filter then removes collinear features inside each training window.
+
 - **Metrics:** accuracy, macro precision / recall / F1 and ROC AUC (primary, used for model selection),
   over the pooled out-of-sample predictions and per walk-forward window (stability over time).
 
