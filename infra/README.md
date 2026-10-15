@@ -192,7 +192,7 @@ which is allowed to start these three jobs and nothing else. The jobs run as `br
   registry. Once a champion exists, the CD smoke test (`/health` = 200) can pass.
 - **Drift.** `brent-drift` writes `results/drift/report.html`, `summary.json` and `history.jsonl`
   to the bucket. The dashboard's *Monitoring* tab shows them and offers the HTML report for
-  download. An alert goes to the same webhook (see [Drift monitoring](../README.md#drift-monitoring-evidently)).
+  download. An alert goes to the same webhook (see [Drift monitoring](../docs/guide/cloud.md#drift-monitoring-evidently)).
 - The CD workflow updates the jobs' image together with the production release.
 
 ## Continuous deployment (GitHub Actions)
