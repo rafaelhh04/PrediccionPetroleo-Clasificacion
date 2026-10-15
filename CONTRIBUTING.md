@@ -67,6 +67,27 @@ Never commit data, credentials or generated artefacts (`data/raw/`, `results/`, 
 
 Dependabot opens grouped weekly PRs for Python dependencies (`uv.lock`) and GitHub Actions.
 
+## Releases
+
+Versions follow [Semantic Versioning](https://semver.org/). The changelog is generated from the
+Conventional Commits with [git-cliff](https://git-cliff.org) ([`cliff.toml`](cliff.toml)), so commit
+messages are the release notes: write them for a reader.
+
+1. On a `chore/release-vX.Y.Z` branch from `main`:
+   - `uv version X.Y.Z`, which updates `pyproject.toml` and `uv.lock`;
+   - optionally, highlights in `.github/release-notes/vX.Y.Z.md`;
+   - `make changelog VERSION=X.Y.Z` as the last step, so that `CHANGELOG.md` includes every commit of
+     the branch. `chore(release)` commits are left out.
+2. Open the pull request and merge it when CI is green.
+3. Tag the merge commit on `main` and push the tag:
+   `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`.
+
+The [`release.yml`](.github/workflows/release.yml) workflow then does the rest:
+
+- it checks that the tag matches the package version;
+- it builds the wheel and the sdist;
+- it creates the GitHub Release with the highlights and the tag's section of the changelog.
+
 ## Repository settings (maintainers)
 
 These live in the GitHub UI, not in the code, and must be configured once.

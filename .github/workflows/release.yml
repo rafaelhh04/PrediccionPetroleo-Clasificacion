@@ -1,0 +1,58 @@
+name: Release
+
+# Publishes a GitHub Release when a version tag is pushed:
+#
+#   git tag -a v1.0.0 -m "v1.0.0" && git push origin v1.0.0
+#
+# The tag must match the version in pyproject.toml. The notes are the tag's section of the changelog,
+# generated with git-cliff from the Conventional Commits (cliff.toml), preceded by the highlights in
+# .github/release-notes/<tag>.md when that file exists. The wheel and the sdist are attached.
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the release and upload its assets
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # git-cliff needs the whole history and the tags
+      - uses: astral-sh/setup-uv@v7
+      - name: Check that the tag matches the package version
+        run: |
+          version="$(uv version --short)"
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match pyproject.toml version ${version}"
+            exit 1
+          fi
+      - name: Release notes (git-cliff)
+        id: cliff
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --latest --strip all
+        env:
+          OUTPUT: CHANGES.md
+      - name: Build the wheel and the sdist
+        run: uv build
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          highlights=".github/release-notes/${GITHUB_REF_NAME}.md"
+          if [ -f "$highlights" ]; then
+            { cat "$highlights"; echo; cat CHANGES.md; } > NOTES.md
+          else
+            cp CHANGES.md NOTES.md
+          fi
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "$GITHUB_REF_NAME" --notes-file NOTES.md --verify-tag
