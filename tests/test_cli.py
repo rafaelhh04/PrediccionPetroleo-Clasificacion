@@ -152,6 +152,21 @@ def test_data_verify_reports_missing_files(config_file: Path) -> None:
     assert "Missing data file" in result.output
 
 
+# ── layered configuration ─────────────────────────────────────
+
+
+def test_config_files_can_be_layered(config_file: Path, tmp_path: Path) -> None:
+    overlay = tmp_path / "overlay.yaml"
+    overlay.write_text("seed: 7\ntuning:\n  n_trials: 3\n")
+
+    result = invoke(["-c", str(config_file), "-c", str(overlay), "config", "show"])
+
+    assert result.exit_code == 0, result.output
+    shown = json.loads(result.output)
+    assert (shown["seed"], shown["tuning"]["n_trials"]) == (7, 3)
+    assert shown["tuning"]["pruning"] is True  # untouched keys come from the first file
+
+
 # ── data download (kagglehub is faked; no network) ────────────
 
 
@@ -465,6 +480,24 @@ def test_dashboard_runs_streamlit_on_the_app(
     assert command[4].endswith("brent_forecast/dashboard/app.py")
     assert "--server.port=9501" in command
     assert command[-2:] == ["--config", str(config)]
+
+
+def test_dashboard_forwards_every_layered_config(
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import subprocess
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(subprocess, "call", lambda command: calls.append(command) or 0)
+    config = _write_config(settings, tmp_path / "config.yaml")
+    overlay = tmp_path / "overlay.yaml"
+    overlay.write_text("seed: 7\n")
+
+    result = invoke(["-c", str(config), "-c", str(overlay), "dashboard"])
+
+    assert result.exit_code == 0, result.output
+    (command,) = calls
+    assert command[-4:] == ["--config", str(config), "--config", str(overlay)]
 
 
 def test_dashboard_requires_streamlit(monkeypatch: pytest.MonkeyPatch) -> None:

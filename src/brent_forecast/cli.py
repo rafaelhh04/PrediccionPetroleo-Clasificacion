@@ -31,7 +31,7 @@ app.add_typer(monitor_app, name="monitor")
 class _State:
     """Global options shared by every command."""
 
-    config_path: Path
+    config_paths: tuple[Path, ...]
     log_level: str
     log_format: LogFormat = "text"
 
@@ -54,13 +54,16 @@ def _validate_log_level(value: str) -> str:
 def main(
     ctx: typer.Context,
     config: Annotated[
-        Path,
+        list[Path] | None,
         typer.Option(
             "--config",
             "-c",
-            help="YAML configuration file (values can be overridden with BRENT_* env vars).",
+            help=(
+                "YAML configuration file; repeat it to layer overlays, later files win "
+                f"(default: {DEFAULT_CONFIG_PATH}; values can be overridden with BRENT_* env vars)."
+            ),
         ),
-    ] = DEFAULT_CONFIG_PATH,
+    ] = None,
     log_level: Annotated[
         str,
         typer.Option(
@@ -83,7 +86,8 @@ def main(
     """Next-day Brent crude oil price direction classifier."""
     fmt: LogFormat = "json" if log_format == "json" else "text"
     setup_logging(log_level, fmt=fmt)
-    ctx.obj = _State(config_path=config, log_level=log_level, log_format=fmt)
+    paths = tuple(config) if config else (DEFAULT_CONFIG_PATH,)
+    ctx.obj = _State(config_paths=paths, log_level=log_level, log_format=fmt)
 
 
 def _state(ctx: typer.Context) -> _State:
@@ -95,7 +99,7 @@ def _state(ctx: typer.Context) -> _State:
 def _settings(ctx: typer.Context) -> Settings:
     """Load the settings for the config path stored by the root callback."""
     try:
-        return load_settings(_state(ctx).config_path)
+        return load_settings(_state(ctx).config_paths)
     except (FileNotFoundError, ValidationError) as exc:
         typer.secho(f"Invalid configuration: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=2) from exc
@@ -454,9 +458,9 @@ def dashboard(
         "--server.headless=true",
         "--browser.gatherUsageStats=false",
         "--",
-        "--config",
-        str(state.config_path),
     ]
+    for path in state.config_paths:
+        command += ["--config", str(path)]
     raise typer.Exit(code=subprocess.call(command))
 
 

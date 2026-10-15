@@ -1,7 +1,7 @@
 """Streamlit entry point: ``brent dashboard`` runs ``streamlit run`` on this file.
 
-The configuration file comes after ``--`` (``streamlit run app.py -- --config PATH``);
-``BRENT_*`` variables apply as everywhere else.
+The configuration files come after ``--`` (``streamlit run app.py -- --config PATH``,
+repeatable to layer an overlay); ``BRENT_*`` variables apply as everywhere else.
 """
 
 import argparse
@@ -15,9 +15,9 @@ from brent_forecast.dashboard.page import render
 def main(argv: list[str] | None = None) -> None:
     """Load the settings and draw the page."""
     parser = argparse.ArgumentParser(prog="brent-dashboard")
-    parser.add_argument("--config", default=str(DEFAULT_CONFIG_PATH))
+    parser.add_argument("--config", action="append", type=Path)
     args, _ = parser.parse_known_args(argv)
-    settings = load_settings(Path(args.config))
+    settings = load_settings(args.config or DEFAULT_CONFIG_PATH)
     render(settings, ApiClient.from_settings(settings))
 
 
