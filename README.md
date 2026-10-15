@@ -5,6 +5,7 @@
 > merely lucky.
 
 [![CI](https://github.com/rafaelhh04/PrediccionPetroleo-Clasificacion/actions/workflows/ci.yml/badge.svg)](https://github.com/rafaelhh04/PrediccionPetroleo-Clasificacion/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/rafaelhh04/PrediccionPetroleo-Clasificacion?sort=semver)](CHANGELOG.md)
 [![codecov](https://codecov.io/gh/rafaelhh04/PrediccionPetroleo-Clasificacion/branch/main/graph/badge.svg)](https://codecov.io/gh/rafaelhh04/PrediccionPetroleo-Clasificacion)
 [![Python 3.12 | 3.13](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -187,7 +188,8 @@ link goes live once GitHub Pages is enabled ([CONTRIBUTING.md](CONTRIBUTING.md#d
 | [API reference](docs/reference/index.md) | Generated from the docstrings with mkdocstrings (best read on the site) |
 | [Infrastructure](infra/README.md) | Terraform stacks, diagrams, deployment steps, costs |
 | [Roadmap](docs/ROADMAP.md) | Professionalisation plan, progress log and closing notes per phase (Spanish) |
-| [Contributing](CONTRIBUTING.md) | Workflow, conventions, CI, repository settings |
+| [Changelog](CHANGELOG.md) | Every change since the original course project, generated from the commits |
+| [Contributing](CONTRIBUTING.md) | Workflow, conventions, CI, releases, repository settings |
 
 ## Project structure
 
