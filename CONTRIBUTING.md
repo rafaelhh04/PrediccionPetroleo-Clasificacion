@@ -79,10 +79,11 @@ messages are the release notes: write them for a reader.
    - `make changelog VERSION=X.Y.Z` as the last step, so that `CHANGELOG.md` includes every commit of
      the branch. `chore(release)` commits are left out.
 2. Open the pull request and merge it when CI is green.
-3. Release the merge commit on `main`, in one of two ways:
+3. Nothing else is required. When the merge reaches `main`, the version in `pyproject.toml` has no tag
+   yet, so the *Release* workflow releases the merge commit that introduced it and creates the tag on
+   GitHub. Two manual alternatives remain:
    - push a tag: `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`;
-   - or run *Actions → Release → Run workflow* on `main` with the version and the commit SHA. Use this
-     when tags cannot be pushed: the release creates the tag on GitHub.
+   - or run *Actions → Release → Run workflow* with the version and the commit SHA.
 
 The [`release.yml`](.github/workflows/release.yml) workflow then does the rest:
 

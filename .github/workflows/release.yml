@@ -1,11 +1,12 @@
 name: Release
 
-# Publishes a GitHub Release, in one of two ways:
+# Publishes a GitHub Release, in one of three ways:
 #
-# - push a version tag:   git tag -a v1.0.0 -m "v1.0.0" && git push origin v1.0.0
-# - run the workflow by hand (Actions → Release → Run workflow) with the version and, optionally, the
-#   commit to release (default: the head of the chosen branch). The release creates the tag on GitHub,
-#   for environments that cannot push tags.
+# - automatically, on a push to main that changes the release files, when the version in pyproject.toml
+#   has no tag yet: the commit that introduced that version (the merge of the release pull request) is
+#   released and tagged on GitHub;
+# - by pushing a version tag: git tag -a v1.0.0 -m "v1.0.0" && git push origin v1.0.0;
+# - by hand (Actions → Release → Run workflow) with the version and, optionally, the commit to release.
 #
 # The version must match pyproject.toml at the released commit. The notes are the version's section of
 # the changelog, generated with git-cliff from the Conventional Commits (cliff.toml), preceded by the
@@ -14,6 +15,13 @@ name: Release
 
 on:
   push:
+    branches: [main]
+    paths:
+      - pyproject.toml
+      - CHANGELOG.md
+      - cliff.toml
+      - .github/release-notes/**
+      - .github/workflows/release.yml
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
   workflow_dispatch:
     inputs:
@@ -29,6 +37,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 env:
   GIT_CLIFF: git-cliff@2.14.2 # same pinned version as `make changelog`
 
@@ -38,39 +50,59 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: write # create the release (and, when dispatched, its tag) and upload the assets
+      contents: write # create the release (and, unless a tag was pushed, its tag) and upload the assets
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0 # git-cliff needs the whole history and the tags
       - uses: astral-sh/setup-uv@v7
-      - name: Resolve the tag and check it against the package version
+      - name: Resolve the release (tag, commit) and check it against the package version
         id: tag
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+          mode=create # the release creates its tag on GitHub
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            mode=pushed
             tag="$GITHUB_REF_NAME"
-          else
+          elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             tag="v${INPUT_VERSION#v}"
+          else
+            version="$(uv version --short)"
+            tag="v${version}"
+            # The first-parent commit of main that set this version: the merge of the release PR.
+            sha="$(git log --first-parent -1 --format=%H -G"^version = \"${version}\"" -- pyproject.toml)"
+            git checkout --quiet "$sha"
+          fi
+          if [ "$mode" = create ] && git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null; then
+            if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+              echo "${tag} is already released: nothing to do."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::error::Tag ${tag} already exists"
+            exit 1
           fi
           version="$(uv version --short)"
           if [ "v${version}" != "$tag" ]; then
             echo "::error::Tag ${tag} does not match pyproject.toml version ${version}"
             exit 1
           fi
-          if [ "$GITHUB_EVENT_NAME" != "push" ] && git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null; then
-            echo "::error::Tag ${tag} already exists"
-            exit 1
-          fi
-          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          {
+            echo "skip=false"
+            echo "mode=${mode}"
+            echo "tag=${tag}"
+            echo "sha=$(git rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
+          echo "Releasing ${tag} at $(git rev-parse --short HEAD) (${mode})"
       - name: Release notes (git-cliff)
+        if: steps.tag.outputs.skip == 'false'
         env:
           TAG: ${{ steps.tag.outputs.tag }}
+          MODE: ${{ steps.tag.outputs.mode }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+          if [ "$MODE" = pushed ]; then
             uvx "$GIT_CLIFF" --latest --strip all --output CHANGES.md
           else
             uvx "$GIT_CLIFF" --unreleased --tag "$TAG" --strip all --output CHANGES.md
@@ -82,14 +114,17 @@ jobs:
             cp CHANGES.md NOTES.md
           fi
       - name: Build the wheel and the sdist
+        if: steps.tag.outputs.skip == 'false'
         run: uv build
       - name: Create the release
+        if: steps.tag.outputs.skip == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.tag }}
+          MODE: ${{ steps.tag.outputs.mode }}
           SHA: ${{ steps.tag.outputs.sha }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+          if [ "$MODE" = pushed ]; then
             target=(--verify-tag)
           else
             target=(--target "$SHA")
