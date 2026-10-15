@@ -1,6 +1,6 @@
 # Developer shortcuts. Every target runs inside the uv-managed environment.
 .DEFAULT_GOAL := help
-.PHONY: help install lint format typecheck test coverage test-all data train retrain drift serve dashboard load-test docker-build docker-train docker-up infra-check clean
+.PHONY: help install lint format typecheck test coverage test-all data demo train retrain drift serve dashboard load-test docker-build docker-train docker-up infra-check clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -30,6 +30,17 @@ test-all: ## Run every test, including the slow end-to-end ones
 
 data: ## Download the Kaggle dataset and verify checksums
 	uv run brent data download
+
+DEMO_CONFIG := --config configs/default.yaml --config configs/demo.yaml
+OIL_CSV := data/raw/oil_geopolitics_dataset_2010_2026.csv
+
+demo: ## End-to-end demo on synthetic data: install, data, train (fast profile), report + champion, explain
+	uv sync --frozen
+	@if [ -e $(OIL_CSV) ]; then echo "$(OIL_CSV) exists: using it"; else uv run brent data synthetic; fi
+	uv run brent $(DEMO_CONFIG) train
+	uv run brent $(DEMO_CONFIG) report
+	uv run brent $(DEMO_CONFIG) explain
+	@echo "Done. Next: 'make serve' (API, :8000/docs) and, in another shell, 'make dashboard' (:8501)."
 
 train: ## Run the full training pipeline
 	uv run brent train

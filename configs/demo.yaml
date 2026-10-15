@@ -1,0 +1,40 @@
+# Demo overlay: layered over default.yaml for a fast end-to-end run (`make demo`).
+#
+#   uv run brent --config configs/default.yaml --config configs/demo.yaml train
+#
+# Only the keys below change (deep merge; lists are replaced). The protocol is the same —
+# purged walk-forward, every model and baseline, the statistical report and the promotion
+# rule — with smaller search spaces, fewer folds and fewer resamples. Use it for demos and
+# smoke runs, never for reported results.
+
+validation:
+  tuning_splits: 3
+
+evaluation:
+  learning_curve_train_sizes: [0.5, 1.0]
+  bootstrap_resamples: 500
+
+explain:
+  permutation_repeats: 3
+  max_explained_rows: 200
+
+tuning:
+  n_trials: 10
+  startup_trials: 5
+
+models:
+  svm:
+    grid:
+      C: [1.0]
+      gamma: [scale, 0.01]
+  random_forest:
+    grid:
+      n_estimators: [100]
+      max_depth: [5, 10]
+      min_samples_leaf: [20]
+  mlp:
+    params:
+      max_epochs: 50
+    grid:
+      hidden_pair: [[64, 32]]
+      learning_rate: [0.01, 0.05]

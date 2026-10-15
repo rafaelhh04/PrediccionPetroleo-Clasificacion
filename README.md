@@ -43,6 +43,12 @@ uv run brent data ingest     # append recent market data (Yahoo Finance, FRED) t
 uv run brent predict         # P(up) for the next trading day with the champion model
 ```
 
+**No Kaggle credentials?** `make demo` runs the whole system on a synthetic dataset with the Kaggle
+schema (a random walk, so there is nothing to predict): `brent data synthetic` writes it to `data/raw/`,
+then training with the fast `configs/demo.yaml` overlay, the statistical report with the champion
+promotion and the explanations. `make serve` and `make dashboard` then show the result. Every page and
+report labels these numbers as synthetic.
+
 Or run every stage with DVC, which skips the stages whose inputs did not change:
 
 ```bash
@@ -95,7 +101,7 @@ when the upstream dataset legitimately changes; any other mismatch aborts and re
 ## CLI
 
 ```text
-brent [--config PATH] [--log-level LEVEL] COMMAND
+brent [--config PATH ...] [--log-level LEVEL] [--log-format text|json] COMMAND
 
   featurize        Build the model-ready dataset from the raw files (data/processed/dataset.parquet)
   train            Run the full pipeline: load, preprocess, tune, train and evaluate on test  [--features]
@@ -103,6 +109,7 @@ brent [--config PATH] [--log-level LEVEL] COMMAND
   explain          Explain the trained models: permutation importance and SHAP (global and local)
   registry show    Print the aliases (champion, challenger) of the registered model
   data download    Download the Kaggle dataset and verify checksums  [--force] [--update-checksums]
+  data synthetic   Write a synthetic dataset with the Kaggle schema (demo, no credentials)  [--seed] [--force]
   data verify      Verify the SHA-256 checksums of the local data files
   data validate    Validate the raw files and write results/validation.json
   data ingest      Append recent market data to data/live/ (Yahoo Finance, FRED)  [--end DATE]
@@ -127,7 +134,13 @@ BRENT_MODELS__RANDOM_FOREST__GRID='{"max_depth": [5, 10]}' uv run brent config s
 uv run brent --config configs/my_experiment.yaml train
 ```
 
-Precedence: explicit arguments > environment variables > YAML file.
+Precedence: explicit arguments > environment variables > YAML file. `--config` can be repeated to
+layer overlays: later files are deep-merged over earlier ones (mappings key by key, lists replaced), so
+[`configs/demo.yaml`](configs/demo.yaml) only lists the smaller search spaces of the demo:
+
+```bash
+uv run brent -c configs/default.yaml -c configs/demo.yaml train
+```
 
 ---
 

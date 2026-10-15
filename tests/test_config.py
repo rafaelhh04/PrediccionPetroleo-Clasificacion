@@ -161,6 +161,20 @@ def test_environment_still_overrides_layered_files(
     assert load_settings([CONFIG_PATH, overlay]).tuning.n_trials == 2
 
 
+def test_demo_overlay_is_smaller_but_keeps_the_protocol() -> None:
+    default = load_settings(CONFIG_PATH)
+    demo = load_settings([CONFIG_PATH, CONFIG_PATH.parent / "demo.yaml"])
+
+    assert demo.tuning.n_trials < default.tuning.n_trials
+    assert demo.evaluation.bootstrap_resamples < default.evaluation.bootstrap_resamples
+    # Same data, split, leakage controls, candidates and statistics: only the budget shrinks.
+    for section in ("paths", "data", "split", "preprocessing", "backtest", "tracking"):
+        assert getattr(demo, section) == getattr(default, section), section
+    assert (demo.validation.purge, demo.validation.embargo) == (1, 5)
+    assert demo.evaluation.alpha == default.evaluation.alpha
+    assert demo.models.model_fields_set == default.models.model_fields_set
+
+
 @pytest.mark.parametrize("paths", [[], ["missing.yaml"]])
 def test_layered_files_must_exist(paths: list[str], tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):

@@ -36,6 +36,11 @@ uv run brent train           # pipeline completa: preprocesado, tuning, entrenam
 uv run brent report          # informe estadístico de la última ejecución (IC, tests, calibración)
 ```
 
+**¿Sin credenciales de Kaggle?** `make demo` ejecuta todo el sistema sobre un dataset **sintético** con el
+esquema de Kaggle (un paseo aleatorio: no hay nada que predecir): `brent data synthetic` lo escribe en
+`data/raw/` y después se entrena con la capa rápida `configs/demo.yaml`, se genera el informe con la
+promoción del campeón y las explicaciones. `make serve` y `make dashboard` muestran el resultado.
+
 Los resultados se generan en `results/` (ignorado por git): `metrics.json` (métricas train/val/test),
 `run.log` (log completo) y `plots/` (curvas ROC, matrices de confusión, curvas de aprendizaje).
 
@@ -66,7 +71,8 @@ Todos los valores ajustables (rutas, semilla, fechas de split, folds de CV, umbr
 hiperparámetros y grids) están en [`configs/default.yaml`](configs/default.yaml) y se pueden sobrescribir con
 variables de entorno `BRENT_*` (`__` como separador de anidamiento), p. ej.
 `BRENT_VALIDATION__MODE=rolling uv run brent train`. `uv run brent config show` muestra la configuración
-resuelta.
+resuelta. `--config` se puede repetir para superponer capas (las posteriores se fusionan en profundidad
+sobre las anteriores): `uv run brent -c configs/default.yaml -c configs/demo.yaml train`.
 
 ---
 
