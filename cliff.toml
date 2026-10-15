@@ -35,8 +35,7 @@ four classifiers (logistic regression, RBF SVM, random forest and a NumPy MLP) o
 chronological split, run with `python main.py`. Its commits predate Conventional Commits.
 
 [1.0.0]: https://github.com/rafaelhh04/PrediccionPetroleo-Clasificacion/releases/tag/v1.0.0
-[0.1.0]: https://github.com/rafaelhh04/PrediccionPetroleo-Clasificacion/tree/3f52cc6
-"""
+[0.1.0]: https://github.com/rafaelhh04/PrediccionPetroleo-Clasificacion/tree/3f52cc6"""
 trim = false
 
 [git]
