@@ -304,6 +304,29 @@ def data_download(
         typer.echo(f"Ready: {path}")
 
 
+@data_app.command("synthetic")
+def data_synthetic(
+    ctx: typer.Context,
+    seed: Annotated[int, typer.Option("--seed", help="Seed of the random walk.")] = 0,
+    force: Annotated[
+        bool, typer.Option("--force", help="Overwrite existing files in the data directory.")
+    ] = False,
+) -> None:
+    """Write a synthetic dataset with the Kaggle schema (a random walk: nothing to predict)."""
+    from brent_forecast.synthetic import write_synthetic_dataset
+
+    settings = _settings(ctx)
+    try:
+        files = write_synthetic_dataset(
+            settings.paths.data_dir, settings.data, seed=seed, overwrite=force
+        )
+    except FileExistsError as exc:
+        typer.secho(f"{exc} (use --force)", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+    for path in files:
+        typer.echo(f"Ready (synthetic): {path}")
+
+
 @app.command()
 def featurize(
     ctx: typer.Context,

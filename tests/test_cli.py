@@ -167,6 +167,46 @@ def test_config_files_can_be_layered(config_file: Path, tmp_path: Path) -> None:
     assert shown["tuning"]["pruning"] is True  # untouched keys come from the first file
 
 
+# ── data synthetic ────────────────────────────────────────────
+
+
+def test_data_synthetic_writes_the_fixture_dataset(
+    config_file: Path, settings: Settings, tmp_path: Path
+) -> None:
+    from conftest import make_events_frame, make_oil_frame, write_csv
+
+    result = invoke(["--config", str(config_file), "data", "synthetic"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.count("Ready (synthetic)") == 2
+    oil = make_oil_frame()
+    expected = {
+        OIL_FILENAME: write_csv(oil, tmp_path / "oil.csv"),
+        EVENTS_FILENAME: write_csv(make_events_frame(oil), tmp_path / "events.csv"),
+    }
+    for name, path in expected.items():  # byte-identical to the test fixtures
+        assert (settings.paths.data_dir / name).read_bytes() == path.read_bytes()
+    assert not settings.paths.checksums_file.exists()  # digests are never recorded
+
+
+def test_data_synthetic_never_overwrites_without_force(
+    config_file: Path, settings: Settings
+) -> None:
+    settings.paths.data_dir.mkdir(parents=True, exist_ok=True)
+    real = settings.paths.data_dir / OIL_FILENAME
+    real.write_text("real data")
+
+    refused = invoke(["--config", str(config_file), "data", "synthetic"])
+    assert refused.exit_code == 1
+    assert "refusing to overwrite" in refused.output
+    assert real.read_text() == "real data"
+    assert not (settings.paths.data_dir / EVENTS_FILENAME).exists()
+
+    forced = invoke(["--config", str(config_file), "data", "synthetic", "--seed", "3", "--force"])
+    assert forced.exit_code == 0, forced.output
+    assert real.read_text().startswith("date,brent_price")
+
+
 # ── data download (kagglehub is faked; no network) ────────────
 
 
