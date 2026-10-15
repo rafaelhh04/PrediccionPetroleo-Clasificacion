@@ -101,6 +101,8 @@ El diagrama completo y cada capa se describen en el [README en inglés](README.m
   - [serving](docs/guide/serving.md);
   - [cloud](docs/guide/cloud.md);
   - [resultados](docs/guide/results.md).
+- Artículo técnico (en inglés): [Why 4 models can't beat a coin flip on Brent — and how to prove
+  it](docs/blog/why-models-cant-beat-a-coin-flip.md).
 - [Model card](docs/MODEL_CARD.md).
 - [Decisiones de arquitectura (ADR)](docs/adr/index.md) y [referencia de la API](docs/reference/index.md).
 - Sitio de documentación: <https://rafaelhh04.github.io/PrediccionPetroleo-Clasificacion/>.
