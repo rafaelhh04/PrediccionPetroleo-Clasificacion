@@ -1,0 +1,62 @@
+# git-cliff configuration: CHANGELOG.md and the GitHub release notes are generated from the
+# Conventional Commits of the history (https://git-cliff.org/docs/configuration).
+#
+#   make changelog VERSION=X.Y.Z               # before tagging a release (see CONTRIBUTING.md)
+#   git cliff --latest --strip all             # release notes of the last tag (release.yml)
+
+[changelog]
+header = """
+# Changelog
+
+All notable changes to this project are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), the project adheres to
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html), and the entries are generated with
+[git-cliff](https://git-cliff.org) from the [Conventional Commits](https://www.conventionalcommits.org/)
+of the history. Merge commits are left out: each pull request is listed through its commits.
+"""
+body = """
+{% if version -%}
+## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else -%}
+## [Unreleased]
+{% endif -%}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | upper_first }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{% if commit.breaking %}[**breaking**] {% endif %}{{ commit.message | upper_first }} ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/rafaelhh04/PrediccionPetroleo-Clasificacion/commit/{{ commit.id }}))
+{%- endfor %}
+{% endfor %}
+"""
+footer = """
+## [0.1.0] - 2026-06-09
+
+The original course project (Machine Learning, 2025-26), before the professionalisation roadmap:
+four classifiers (logistic regression, RBF SVM, random forest and a NumPy MLP) on a fixed
+chronological split, run with `python main.py`. Its commits predate Conventional Commits.
+
+[1.0.0]: https://github.com/rafaelhh04/PrediccionPetroleo-Clasificacion/releases/tag/v1.0.0
+[0.1.0]: https://github.com/rafaelhh04/PrediccionPetroleo-Clasificacion/tree/3f52cc6"""
+trim = false
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+protect_breaking_commits = true
+filter_commits = false
+topo_order = false
+sort_commits = "oldest"
+# The numbered HTML comments only order the groups; striptags removes them from the output.
+commit_parsers = [
+  { message = "^feat", group = "<!-- 0 -->Features" },
+  { message = "^fix", group = "<!-- 1 -->Bug fixes" },
+  { message = "^perf", group = "<!-- 2 -->Performance" },
+  { message = "^refactor", group = "<!-- 3 -->Refactoring" },
+  { message = "^test", group = "<!-- 4 -->Tests" },
+  { message = "^docs", group = "<!-- 5 -->Documentation" },
+  { message = "^ci", group = "<!-- 6 -->Continuous integration and delivery" },
+  { message = "^build", group = "<!-- 7 -->Build and dependencies" },
+  { message = "^chore\\(release\\)", skip = true },
+  { message = "^chore", group = "<!-- 8 -->Maintenance" },
+  { message = "^style", group = "<!-- 9 -->Style" },
+]

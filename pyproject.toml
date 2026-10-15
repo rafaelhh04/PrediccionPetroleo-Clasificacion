@@ -1,6 +1,6 @@
 [project]
 name = "brent-forecast"
-version = "0.1.0"
+version = "1.0.0"
 description = "Next-day Brent crude oil price direction classifier with market and geopolitical features."
 readme = "README.md"
 requires-python = ">=3.12"

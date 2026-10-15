@@ -18,7 +18,7 @@ Format: Mitchell et al., *Model Cards for Model Reporting* (FAT* 2019).
 | Preprocessing | One scikit-learn `Pipeline` per model: `VIFSelector(10)` → `Winsorizer(1–99 %, return features)` → `StandardScaler` → model. Every step is fitted only on the training rows of each fold or window |
 | Tuning | Grid search (LR, SVM, RF, MLP) or Optuna TPE with median pruning (LightGBM, 50 trials), both on purged walk-forward CV of the development period, maximising ROC AUC |
 | Artefacts | `results/models/<model>.joblib`: each pipeline refitted on all labelled data |
-| Version | `brent-forecast` 0.1.0, Phase 3 of `docs/ROADMAP.md` |
+| Version | `brent-forecast` 1.0.0 (see the [changelog](https://github.com/rafaelhh04/PrediccionPetroleo-Clasificacion/blob/main/CHANGELOG.md)) |
 | Licence | MIT |
 
 ## Intended use
