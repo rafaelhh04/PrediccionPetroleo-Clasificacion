@@ -14,7 +14,8 @@
 [![Terraform](https://img.shields.io/badge/IaC-Terraform-7b42bc.svg)](infra/README.md)
 [![Docs](https://img.shields.io/badge/docs-MkDocs%20Material-526cfe.svg)](https://rafaelhh04.github.io/PrediccionPetroleo-Clasificacion/)
 
-*Versión en español: [README.es.md](README.es.md).*
+*Versión en español: [README.es.md](README.es.md).* · **Article:** [Why 4 models can't beat a coin flip
+on Brent — and how to prove it](docs/blog/why-models-cant-beat-a-coin-flip.md)
 
 ## TL;DR
 
@@ -180,6 +181,7 @@ link goes live once GitHub Pages is enabled ([CONTRIBUTING.md](CONTRIBUTING.md#d
 | [Serving](docs/guide/serving.md) | API, observability, dashboard, containers, load test |
 | [Cloud, CD and monitoring](docs/guide/cloud.md) | GCP stack, continuous deployment, retraining, drift |
 | [Results](docs/guide/results.md) | Statistical report, backtest, feature ablation |
+| [Article](docs/blog/why-models-cant-beat-a-coin-flip.md) | *Why 4 models can't beat a coin flip on Brent — and how to prove it*: methodology, tests, backtest, lessons |
 | [Model card](docs/MODEL_CARD.md) | Intended use, metrics with intervals, limitations, risks |
 | [Architecture decisions](docs/adr/index.md) | Eight ADRs: src layout + uv, purged walk-forward, promotion rule, MLflow backend, GCS FUSE, keyless CD, drift, demo |
 | [API reference](docs/reference/index.md) | Generated from the docstrings with mkdocstrings (best read on the site) |
