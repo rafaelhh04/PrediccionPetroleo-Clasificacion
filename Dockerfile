@@ -13,7 +13,7 @@
 # configuration. `runtime` (the API) is the last stage, so it is what a plain build produces.
 
 # Base images are pinned in the FROM lines so Dependabot can update them.
-FROM ghcr.io/astral-sh/uv:0.11.32 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.5 AS uv
 
 # ── builder ───────────────────────────────────────────────────
 FROM python:3.12-slim-trixie AS builder
